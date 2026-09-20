@@ -1,0 +1,171 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  STUDENT
+  ADMIN
+}
+
+enum PowerUpType {
+  STREAK_FREEZE
+  HEART_REFILL
+  DOUBLE_XP
+}
+
+model User {
+  id                 String                 @id @default(uuid())
+  email              String                 @unique
+  name               String?
+  handle             String?                @unique 
+  avatarUrl          String?
+  role               Role                   @default(STUDENT)
+  streak             Int                    @default(0)
+  totalXp            Int                    @default(0)
+  hearts             Int                    @default(5)
+  maxHearts          Int                    @default(5)
+  doubleXpUntil      DateTime?
+  lastActive         DateTime               @default(now())
+  powerUps           UserPowerUp[]
+  progress           UserProgress[]
+  questProgress      UserQuestProgress[]
+  dailyQuizAttempts  UserDailyQuizAttempt[]
+  createdAt          DateTime               @default(now())
+  darkMode           Boolean              @default(false)
+  soundEffects       Boolean              @default(true)
+  dailyReminders     Boolean              @default(true)
+  language           String               @default("en")
+  
+}
+
+model PowerUp {
+  id          String        @id @default(uuid())
+  name        String        // e.g., "Streak Freeze"
+  code        PowerUpType   @unique
+  description String
+  costXp      Int           @default(50)
+  icon        String        // e.g., "snowflake", "heart", "gem"
+  userPowerUps UserPowerUp[]
+}
+
+model UserPowerUp {
+  id         String   @id @default(uuid())
+  userId     String
+  powerUpId  String
+  quantity   Int      @default(0)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  powerUp    PowerUp  @relation(fields: [powerUpId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, powerUpId])
+}
+
+model DailyQuest {
+  id           String              @id @default(uuid())
+  title        String              // e.g., "Complete 1 Lesson"
+  description  String
+  targetCount  Int                 @default(1)
+  xpReward     Int                 @default(25)
+  userProgress UserQuestProgress[]
+}
+
+model UserQuestProgress {
+  id           String     @id @default(uuid())
+  userId       String
+  questId      String
+  currentCount Int        @default(0)
+  completed    Boolean    @default(false)
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  quest        DailyQuest @relation(fields: [questId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, questId])
+}
+
+model DailyQuiz {
+  id        String                 @id @default(uuid())
+  date      String                 @unique // Format: "YYYY-MM-DD" for 1-a-day lock
+  title     String                 @default("Are You Smarter Than a 7th Grader?")
+  prompt    String
+  xpReward  Int                    @default(50)
+  options   DailyQuizOption[]
+  attempts  UserDailyQuizAttempt[]
+}
+
+model DailyQuizOption {
+  id          String    @id @default(uuid())
+  text        String
+  isCorrect   Boolean   @default(false)
+  dailyQuizId String
+  dailyQuiz   DailyQuiz @relation(fields: [dailyQuizId], references: [id], onDelete: Cascade)
+}
+
+model UserDailyQuizAttempt {
+  id          String    @id @default(uuid())
+  userId      String
+  dailyQuizId String
+  passed      Boolean   @default(false)
+  completedAt DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dailyQuiz   DailyQuiz @relation(fields: [dailyQuizId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dailyQuizId]) // Guarantees Wordle-style ONCE-PER-DAY limit per user
+}
+
+model Grade {
+  id       String    @id @default(uuid())
+  name     String    // e.g., "Class 7"
+  level    Int       // e.g., 7
+  subjects Subject[]
+}
+
+model Subject {
+  id       String    @id @default(uuid())
+  name     String    
+  icon     String?   
+  gradeId  String
+  grade    Grade     @relation(fields: [gradeId], references: [id], onDelete: Cascade)
+  chapters Chapter[]
+}
+
+model Chapter {
+  id          String         @id @default(uuid())
+  title       String         
+  order       Int            @default(1)
+  summaryText String         @db.Text
+  subjectId   String
+  subject     Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  questions   Question[]
+  progress    UserProgress[]
+}
+
+model Question {
+  id        String   @id @default(uuid())
+  prompt    String
+  chapterId String
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  options   Option[]
+}
+
+model Option {
+  id         String   @id @default(uuid())
+  text       String
+  isCorrect  Boolean  @default(false)
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model UserProgress {
+  id        String   @id @default(uuid())
+  userId    String
+  chapterId String
+  completed Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  chapter   Chapter  @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, chapterId])
+}
