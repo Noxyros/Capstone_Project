@@ -8,10 +8,9 @@ import { useLanguage } from '@/src/context/LanguageContext'
 
 export default function SubjectDetailPage() {
   const { t } = useLanguage()
-  const params = useParams()
-  const subjectId = params?.id as string
+  const params = useParams<{ id: string }>()
+  const subjectId = params.id
 
-  // Moved inside the component so it can use the `t()` function dynamically
   const MOCK_SUBJECT_DATA: Record<string, { name: string; chapters: Array<{ id: string; title: string; order: number; status: 'completed' | 'in_progress' | 'locked' }> }> = {
     'math-1': {
       name: t('Mathematics', 'Matematika'),
@@ -32,16 +31,11 @@ export default function SubjectDetailPage() {
 
   const subject = MOCK_SUBJECT_DATA[subjectId] || {
     name: t('Subject Modules', 'Modul Pelajaran'),
-    chapters: [
-      { id: 'ch-1', title: t('Exponents & Powers', 'Eksponen & Pangkat'), order: 1, status: 'completed' },
-      { id: 'ch-2', title: t('Introduction to Logarithms', 'Pengenalan Logaritma'), order: 2, status: 'in_progress' },
-      { id: 'ch-3', title: t('Linear Equations', 'Persamaan Linear'), order: 3, status: 'locked' },
-    ],
+    chapters: [],
   }
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Header with Back Button */}
       <div className="flex items-center gap-4">
         <Link href="/" className="p-2.5 bg-white border-2 border-slate-200 hover:border-slate-300 rounded-2xl transition">
           <ArrowLeft className="w-5 h-5 text-slate-600" />
@@ -54,7 +48,6 @@ export default function SubjectDetailPage() {
         </div>
       </div>
 
-      {/* Chapters / Modules List */}
       <div className="space-y-3">
         {subject.chapters.map((chapter) => {
           const isCompleted = chapter.status === 'completed'
@@ -65,11 +58,7 @@ export default function SubjectDetailPage() {
             <div
               key={chapter.id}
               className={`bg-white border-2 border-b-4 rounded-2xl p-5 flex items-center justify-between transition-all ${
-                isLocked 
-                  ? 'border-slate-200 opacity-60' 
-                  : isInProgress 
-                  ? 'border-indigo-500 shadow-sm' 
-                  : 'border-slate-200'
+                isLocked ? 'border-slate-200 opacity-60' : isInProgress ? 'border-indigo-500 shadow-sm' : 'border-slate-200'
               }`}
             >
               <div className="flex items-center gap-4">
@@ -78,7 +67,6 @@ export default function SubjectDetailPage() {
                   {isInProgress && <Circle className="w-7 h-7 text-indigo-500 stroke-[2.5]" />}
                   {isLocked && <Lock className="w-6 h-6 text-slate-400" />}
                 </div>
-
                 <div>
                   <span className="text-xs font-bold text-slate-400 uppercase">
                     {t('Module', 'Modul')} {chapter.order}
@@ -92,9 +80,7 @@ export default function SubjectDetailPage() {
                   <Link
                     href={`/chapter/${chapter.id}`}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs uppercase tracking-wide border-b-4 ${
-                      isInProgress
-                        ? 'bg-indigo-600 text-white border-indigo-800'
-                        : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                      isInProgress ? 'bg-indigo-600 text-white border-indigo-800' : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
                     }`}
                   >
                     <Play className="w-4 h-4 fill-current" />

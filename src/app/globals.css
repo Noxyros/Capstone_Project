@@ -87,16 +87,18 @@ html.dark .text-slate-400 {
   color: #8fa5ab !important;
 }
 
+html.dark .text-slate-200 {
+  color: #26383f !important;
+}
+
 html.dark .border-slate-100,
 html.dark .border-slate-200,
 html.dark .border-slate-300 {
   border-color: #26383f !important;
 }
 
-html.dark .divide-y > :not([hidden]) ~ :not([hidden]),
-html.dark .divide-slate-100 > :not([hidden]) ~ :not([hidden]) {
-  border-top-color: #26383f !important;
-  border-bottom-color: #26383f !important;
+html.dark .divide-slate-100 > :not(:last-child) {
+  border-color: #26383f !important;
 }
 
 html.dark .hover\:bg-white:hover {
@@ -146,10 +148,7 @@ html.dark .stats-panel-border {
   border-color: #26383f !important;
 }
 
-/* =========================================================
-   Profile Toasts
-   ========================================================= */
-
+/* Profile Toasts */
 .profile-toast-success {
   background-color: #ecfdf5;
   border-color: #a7f3d0;
@@ -180,10 +179,7 @@ html.dark .stats-panel-border {
   color: #ef4444;
 }
 
-/* =========================================================
-   Profile Toasts - Dark Mode
-   ========================================================= */
-
+/* Profile Toasts - Dark Mode */
 html.dark .profile-toast-success {
   background-color: #193b38;
   border-color: #286057;
@@ -253,4 +249,34 @@ html.dark .border-amber-100 {
 
 html.dark .daily-quiz-play {
   border-bottom-color: #7c4a2c;
+}
+
+html.dark .bg-white,
+html.dark .bg-white\/95,
+html.dark .bg-white\/90 {
+  background-color: #162329 !important;
+}
+
+html.dark .bg-teal-50 {
+  background-color: #183936 !important;
+}
+
+html.dark .text-teal-600 {
+  color: #5eead4 !important;
+}
+
+html.dark .bg-indigo-50\/50 {
+  background-color: #202b50 !important;
+}
+
+html.dark .bg-amber-100 {
+  background-color: #40321d !important;
+}
+
+html.dark .border-amber-200 {
+  border-color: #6b4d20 !important;
+}
+
+html.dark .border-sky-100 {
+  border-color: #28586a !important;
 }

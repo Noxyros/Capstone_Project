@@ -5,7 +5,7 @@ import StatsPanel from '@/src/components/shared/StatsPanel'
 import RightRail from '@/src/components/layout/RightRail'
 import { LanguageProvider } from '@/src/context/LanguageContext'
 import { ThemeProvider } from '@/src/context/ThemeContext'
-import { UserProvider } from '@/src/context/UserContext' // <-- 1. Imported here
+import { UserProvider } from '@/src/context/UserContext'
 
 const nunito = Nunito({
   subsets: ['latin'],
@@ -24,7 +24,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className={`${nunito.className} bg-slate-50 text-slate-700 min-h-screen antialiased`}>
         <LanguageProvider>
           <ThemeProvider>
-            <UserProvider> {/* <-- 2. Wrapped the app here */}
+            <UserProvider>
             
             <div className="lg:hidden sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b-2 border-slate-200 px-4 py-3 shadow-sm">
               <StatsPanel />

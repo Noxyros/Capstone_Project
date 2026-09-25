@@ -4,7 +4,8 @@ import React, { useState, useRef } from 'react'
 import Link from 'next/link'
 import {
   Flame, Heart, Zap, Trophy, Medal, User, Sparkles,
-  Pencil, AtSign, Upload, CheckCircle2, AlertCircle
+  Pencil, AtSign, Upload, CheckCircle2, AlertCircle,
+  Settings
 } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 
@@ -107,7 +108,17 @@ export default function ProfilePage() {
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto pb-10 relative">
+
+      {/* Mobile Top Header (Hidden on Desktop) */}
+      <div className="flex items-center justify-center md:hidden px-1 mb-2">
+        <h1 className="text-xl font-extrabold text-slate-700">{t('Profile', 'Profil')}</h1>
+      </div>
+
       <section className="bg-white border-2 border-b-[6px] border-slate-200 rounded-3xl p-6 sm:p-8 flex flex-col sm:flex-row items-center sm:items-start gap-6 relative transition-transform">
+        <Link href="/settings" className="absolute top-4 right-4 md:hidden text-slate-400 hover:text-slate-600 transition-colors p-1 z-10">
+          <Settings className="w-6 h-6" />
+        </Link>
+
         <div className="shrink-0 relative group cursor-pointer" onClick={() => setAvatarModalOpen(true)}>
           <div className="absolute inset-0 bg-indigo-500 rounded-full blur-lg opacity-20 transform translate-y-2"></div>
           <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-[6px] border-white shadow-[0_0_0_2px_theme(colors.slate.100)] bg-indigo-50 text-indigo-600 flex items-center justify-center text-4xl font-black overflow-hidden">
@@ -149,7 +160,7 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <div className="pt-2 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div className="pt-2 flex flex-col sm:flex-row justify-between items-center sm:items-center gap-4">
             <span className="text-xs font-extrabold text-indigo-600 bg-indigo-50 border-2 border-indigo-100 px-4 py-2 rounded-xl uppercase tracking-wider inline-block">
               {t('Joined March 2026', 'Bergabung Maret 2026')}
             </span>

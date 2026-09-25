@@ -81,14 +81,14 @@ export default function StatsPanel() {
   const { gems, hearts, streak, freezesEquipped, buyItem, setHearts } = useUser()
   const [grade, setGrade] = useState<(typeof GRADES)[number]>(7)
   const [open, setOpen] = useState<string | null>(null)
-  
+
   const [unlimitedHearts, setUnlimitedHearts] = useState(false)
   const [xpBoostActive, setXpBoostActive] = useState(false)
   const [xpBoostSecondsLeft, setXpBoostSecondsLeft] = useState(15 * 60)
-  
+
   const [gemSurgeActive, setGemSurgeActive] = useState(false)
   const [gemSurgeSecondsLeft, setGemSurgeSecondsLeft] = useState(7 * 60)
-  
+
   const rootRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -135,14 +135,14 @@ export default function StatsPanel() {
     setXpBoostActive(true)
     setXpBoostSecondsLeft(15 * 60)
   })
-  
+
   const handleToggleUnlimited = () => {
     setUnlimitedHearts(!unlimitedHearts)
   }
 
   const handleSacrificeSurge = () => {
     if (!unlimitedHearts && hearts > 4 && !gemSurgeActive) {
-      setHearts(hearts - 4) 
+      setHearts(hearts - 4)
       setGemSurgeActive(true)
       setGemSurgeSecondsLeft(7 * 60)
     }
@@ -152,7 +152,7 @@ export default function StatsPanel() {
 
   return (
     <div ref={rootRef} className="relative flex items-center justify-between gap-2 font-extrabold w-full lg:flex-col lg:items-stretch">
-      
+
       {/* 1. Course Selector Button */}
       <div className="relative flex-1 lg:flex-none min-w-0">
         <button
@@ -188,12 +188,12 @@ export default function StatsPanel() {
       </div>
 
       {/* 2. Stats Buttons */}
-      <div className="flex items-center gap-1 shrink-0 lg:justify-between lg:bg-slate-50 lg:p-1.5 lg:rounded-2xl lg:border stats-panel-border">
+      <div className="flex items-center gap-1 shrink-0 rounded-2xl bg-slate-50 p-1.5 border stats-panel-border lg:justify-between">
 
         {/* Streak */}
         <div className="group/streak relative">
-          <button 
-            onClick={() => onStatClick('streak')} 
+          <button
+            onClick={() => onStatClick('streak')}
             className="flex items-center gap-1.5 text-orange-500 lg:hover:bg-white lg:hover:shadow-sm active:bg-orange-50 active:scale-95 px-2.5 py-1.5 rounded-xl transition-all"
           >
             <Flame className="w-5 h-5 sm:w-6 sm:h-6 fill-orange-500" />
@@ -208,8 +208,8 @@ export default function StatsPanel() {
 
         {/* Hearts Dropdown (Desktop Only) */}
         <div className="group/hearts relative">
-          <button 
-            onClick={() => onStatClick('hearts')} 
+          <button
+            onClick={() => onStatClick('hearts')}
             className="flex items-center gap-1.5 text-rose-500 lg:hover:bg-white lg:hover:shadow-sm active:bg-rose-50 active:scale-95 px-2.5 py-1.5 rounded-xl transition-all"
           >
             <Heart className="w-5 h-5 sm:w-6 sm:h-6 fill-rose-500" />
@@ -241,7 +241,8 @@ export default function StatsPanel() {
                     </div>
                     <button
                       onClick={handleToggleUnlimited}
-                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-purple-600' : 'bg-slate-300'}`}
+                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                        }`}
                     >
                       <div
                         className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
@@ -260,7 +261,7 @@ export default function StatsPanel() {
                           {t('Gems Surge', 'Surge Permata')}
                         </div>
                         <div className="text-[11px] font-bold mt-0.5 text-slate-400">
-                          {gemSurgeActive 
+                          {gemSurgeActive
                             ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
                             : t('Needs 5 to sacrifice 4', 'Butuh 5 untuk korbankan 4')}
                         </div>
@@ -271,10 +272,10 @@ export default function StatsPanel() {
                       disabled={isSurgeDisabled}
                       className="bg-indigo-200 text-indigo-600 hover:bg-indigo-300 disabled:opacity-40 disabled:hover:bg-indigo-200 font-extrabold text-xs px-4 py-2 rounded-xl transition-all shrink-0"
                     >
-                      {gemSurgeActive && unlimitedHearts 
+                      {gemSurgeActive && unlimitedHearts
                         ? t('Disabled', 'Nonaktif')
-                        : gemSurgeActive 
-                          ? t('Active', 'Aktif') 
+                        : gemSurgeActive
+                          ? t('Active', 'Aktif')
                           : t('Risk It', 'Risiko')}
                     </button>
                   </div>
@@ -286,8 +287,8 @@ export default function StatsPanel() {
 
         {/* Gems Tooltip (Desktop Only) */}
         <div className="group/gems relative">
-          <button 
-            onClick={() => onStatClick('gems')} 
+          <button
+            onClick={() => onStatClick('gems')}
             className="flex items-center gap-1.5 text-sky-500 lg:hover:bg-white lg:hover:shadow-sm active:bg-sky-50 active:scale-95 px-2.5 py-1.5 rounded-xl transition-all"
           >
             <Gem className="w-5 h-5 sm:w-6 sm:h-6 fill-sky-400" />
@@ -311,36 +312,36 @@ export default function StatsPanel() {
       <AnimatePresence>
         {open && open !== 'course' && (
           <>
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              className="absolute top-[calc(100%+12px)] -left-4 w-screen h-[100dvh] bg-slate-900/40 z-40 lg:hidden" 
-              onClick={() => setOpen(null)} 
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute top-[calc(100%+12px)] -left-4 w-screen h-[100dvh] bg-slate-900/40 z-40 lg:hidden"
+              onClick={() => setOpen(null)}
             />
-            
-            <motion.div 
-              initial={{ opacity: 0, y: -20 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              exit={{ opacity: 0, y: -20 }} 
-              transition={{ type: 'spring', damping: 25, stiffness: 350 }} 
+
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ type: 'spring', damping: 25, stiffness: 350 }}
               className="absolute top-[calc(100%+12px)] -left-4 w-screen bg-white border-b-2 border-slate-200 z-50 lg:hidden shadow-2xl rounded-b-3xl max-h-[85vh] overflow-y-auto"
             >
               {/* --- Streak Dropdown Mobile --- */}
               {open === 'streak' && (
                 <div className="p-6">
                   <div className="flex items-center justify-between mb-4">
-                     <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
-                       <Flame className="w-7 h-7 text-orange-500 fill-orange-500" />
-                       {t('Streak', 'Beruntun')}
-                     </h2>
-                     <button onClick={() => setOpen(null)} className="p-2 -mr-2 text-slate-400 active:bg-slate-100 rounded-full">
-                       <X className="w-6 h-6" />
-                     </button>
+                    <h2 className="text-2xl font-black text-slate-800 flex items-center gap-2">
+                      <Flame className="w-7 h-7 text-orange-500 fill-orange-500" />
+                      {t('Streak', 'Beruntun')}
+                    </h2>
+                    <button onClick={() => setOpen(null)} className="p-2 -mr-2 text-slate-400 active:bg-slate-100 rounded-full">
+                      <X className="w-6 h-6" />
+                    </button>
                   </div>
                   <StreakCalendar streak={streak} />
-                  <button 
-                    onClick={() => setOpen(null)} 
+                  <button
+                    onClick={() => setOpen(null)}
                     className="mt-6 w-full bg-orange-500 text-white font-extrabold py-3.5 rounded-2xl shadow-[0_4px_0_0_#ea580c] active:translate-y-[4px] active:shadow-none hover:bg-orange-400 transition-all uppercase tracking-wide"
                   >
                     {t('Keep it going', 'Pertahankan')}
@@ -377,7 +378,8 @@ export default function StatsPanel() {
                       </div>
                       <button
                         onClick={handleToggleUnlimited}
-                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-purple-600' : 'bg-slate-300'}`}
+                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                          }`}
                       >
                         <div
                           className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
@@ -394,21 +396,21 @@ export default function StatsPanel() {
                             {t('Gems Surge', 'Surge Permata')}
                           </div>
                           <div className="text-xs font-bold mt-0.5 text-slate-500">
-                            {gemSurgeActive 
-                              ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}` 
+                            {gemSurgeActive
+                              ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
                               : t('Needs 5 to sacrifice 4', 'Butuh 5 untuk korbankan 4')}
                           </div>
                         </div>
                       </div>
-                      <button 
+                      <button
                         onClick={handleSacrificeSurge}
                         disabled={isSurgeDisabled}
                         className="bg-indigo-200 text-indigo-600 hover:bg-indigo-300 disabled:opacity-40 disabled:hover:bg-indigo-200 font-extrabold text-sm px-5 py-2.5 rounded-xl transition-all"
                       >
-                        {gemSurgeActive && unlimitedHearts 
+                        {gemSurgeActive && unlimitedHearts
                           ? t('Disabled', 'Nonaktif')
-                          : gemSurgeActive 
-                            ? t('Active', 'Aktif') 
+                          : gemSurgeActive
+                            ? t('Active', 'Aktif')
                             : t('Risk It', 'Risiko')}
                       </button>
                     </div>
@@ -430,7 +432,7 @@ export default function StatsPanel() {
                   </div>
 
                   <div className="space-y-4">
-                    <button 
+                    <button
                       onClick={handleBuyHearts}
                       disabled={gems < 250 || hearts >= MAX_HEARTS}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
@@ -453,7 +455,7 @@ export default function StatsPanel() {
                       </div>
                     </button>
 
-                    <button 
+                    <button
                       onClick={handleBuyXpBoost}
                       disabled={gems < 100 || xpBoostActive}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
@@ -476,7 +478,7 @@ export default function StatsPanel() {
                       </div>
                     </button>
 
-                    <button 
+                    <button
                       onClick={handleBuyFreeze}
                       disabled={gems < 200 || freezesEquipped >= 2}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
