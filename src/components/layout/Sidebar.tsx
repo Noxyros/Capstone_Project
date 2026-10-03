@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Compass, Dumbbell, Trophy, User, Ellipsis, Settings, CircleHelp, LogOut } from 'lucide-react'
+import { Compass, Dumbbell, Trophy, User, Ellipsis, Settings, CircleHelp, LogOut, GraduationCap } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 
 export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
@@ -19,6 +19,7 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
     { id: 'practice', name: t('Practice', 'Latihan'), href: '/practice', icon: Dumbbell, color: 'text-emerald-500' },
     { id: 'leaderboard', name: t('Leaderboard', 'Liga'), href: '/leaderboard', icon: Trophy, color: 'text-amber-500' },
     { id: 'profile', name: t('Profile', 'Profil'), href: '/profile', icon: User, color: 'text-rose-500' },
+    { id: 'teacher', name: t('Teacher studio', 'Studio guru'), href: '/teacher', icon: GraduationCap, color: 'text-sky-500' },
   ]
 
   useEffect(() => {
@@ -29,7 +30,7 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [])
 
-  const moreActive = pathname === '/settings' || pathname === '/help'
+  const moreActive = pathname === '/settings' || pathname === '/help' || pathname === '/teacher'
 
   if (mobile) {
     return (

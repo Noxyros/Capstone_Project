@@ -280,3 +280,8 @@ html.dark .border-amber-200 {
 html.dark .border-sky-100 {
   border-color: #28586a !important;
 }
+
+html.dark .teacher-node-editor {
+  background-color: #162329 !important;
+  border-color: #26383f !important;
+}

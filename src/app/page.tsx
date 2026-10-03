@@ -1,13 +1,20 @@
 'use client'
 
+import React, { useEffect, useState } from 'react'
 import DailyQuizWidget from '@/src/components/widgets/DailyQuizWidget'
 import DailyQuestCard from '@/src/components/widgets/DailyQuestCard'
 import SubjectCard from '@/src/components/shared/SubjectCard'
 import { Target } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
 
 export default function HomePage() {
   const { t } = useLanguage()
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+
+  useEffect(() => {
+    setSubjects(readCurriculum(createDefaultCurriculum(t)))
+  }, [t])
 
   return (
     <div className="space-y-8">
@@ -55,18 +62,16 @@ export default function HomePage() {
       <section>
         <h2 className="text-xl font-extrabold text-slate-700 mb-4">{t('Your Subjects', 'Mata Pelajaranmu')}</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SubjectCard
-            id="math-1"
-            name={t("Mathematics", "Matematika")}
-            color="blue"
-            progress={35}
-          />
-          <SubjectCard
-            id="science-1"
-            name={t("Science", "Sains")}
-            color="green"
-            progress={12}
-          />
+          {subjects.map((subject) => (
+            <SubjectCard
+              key={subject.id}
+              id={subject.id}
+              name={subject.name}
+              color={subject.color}
+              progress={0}
+              iconType={subject.icon}
+            />
+          ))}
         </div>
       </section>
     </div>

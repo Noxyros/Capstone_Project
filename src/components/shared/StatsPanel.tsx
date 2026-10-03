@@ -78,11 +78,10 @@ function MiniCard({ children }: { children: React.ReactNode }) {
 
 export default function StatsPanel() {
   const { t } = useLanguage()
-  const { gems, hearts, streak, freezesEquipped, buyItem, setHearts } = useUser()
+  const { gems, hearts, unlimitedHearts, streak, freezesEquipped, buyItem, setHearts, setUnlimitedHearts } = useUser()
   const [grade, setGrade] = useState<(typeof GRADES)[number]>(7)
   const [open, setOpen] = useState<string | null>(null)
 
-  const [unlimitedHearts, setUnlimitedHearts] = useState(false)
   const [xpBoostActive, setXpBoostActive] = useState(false)
   const [xpBoostSecondsLeft, setXpBoostSecondsLeft] = useState(15 * 60)
 

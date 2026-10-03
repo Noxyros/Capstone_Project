@@ -1,38 +1,23 @@
 'use client'
 
-import React from 'react'
+import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
 
 export default function SubjectDetailPage() {
   const { t } = useLanguage()
   const params = useParams<{ id: string }>()
   const subjectId = params.id
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
 
-  const MOCK_SUBJECT_DATA: Record<string, { name: string; chapters: Array<{ id: string; title: string; order: number; status: 'completed' | 'in_progress' | 'locked' }> }> = {
-    'math-1': {
-      name: t('Mathematics', 'Matematika'),
-      chapters: [
-        { id: 'ch-1', title: t('Exponents & Powers', 'Eksponen & Pangkat'), order: 1, status: 'completed' },
-        { id: 'ch-2', title: t('Introduction to Logarithms', 'Pengenalan Logaritma'), order: 2, status: 'in_progress' },
-        { id: 'ch-3', title: t('Linear Equations in One Variable', 'Persamaan Linear Satu Variabel'), order: 3, status: 'locked' },
-      ],
-    },
-    'science-1': {
-      name: t('Science & Biology', 'Sains & Biologi'),
-      chapters: [
-        { id: 'ch-4', title: t('Photosynthesis & Plant Energy', 'Fotosintesis & Energi Tumbuhan'), order: 1, status: 'completed' },
-        { id: 'ch-5', title: t('Atoms, Elements & Compounds', 'Atom, Unsur & Senyawa'), order: 2, status: 'locked' },
-      ],
-    },
-  }
+  useEffect(() => {
+    setSubjects(readCurriculum(createDefaultCurriculum(t)))
+  }, [t])
 
-  const subject = MOCK_SUBJECT_DATA[subjectId] || {
-    name: t('Subject Modules', 'Modul Pelajaran'),
-    chapters: [],
-  }
+  const subject = subjects.find((item) => item.id === subjectId)
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -41,7 +26,9 @@ export default function SubjectDetailPage() {
           <ArrowLeft className="w-5 h-5 text-slate-600" />
         </Link>
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-700">{subject.name}</h1>
+          <h1 className="text-2xl font-extrabold text-slate-700">
+            {subject?.name ?? t('Subject Modules', 'Modul Pelajaran')}
+          </h1>
           <p className="text-sm font-semibold text-slate-400">
             {t('Select a module to continue learning', 'Pilih modul untuk melanjutkan belajar')}
           </p>
@@ -49,10 +36,10 @@ export default function SubjectDetailPage() {
       </div>
 
       <div className="space-y-3">
-        {subject.chapters.map((chapter) => {
-          const isCompleted = chapter.status === 'completed'
-          const isInProgress = chapter.status === 'in_progress'
-          const isLocked = chapter.status === 'locked'
+        {subject?.chapters.map((chapter) => {
+          const isCompleted = chapter.chaptersStatus === 'completed'
+          const isInProgress = chapter.chaptersStatus === 'in_progress'
+          const isLocked = chapter.chaptersStatus === 'locked'
 
           return (
             <div
@@ -95,6 +82,11 @@ export default function SubjectDetailPage() {
             </div>
           )
         })}
+        {subject && subject.chapters.length === 0 && (
+          <div className="bg-white rounded-2xl border-2 border-slate-200 p-6 text-center font-bold text-slate-500">
+            {t('No chapters have been added yet.', 'Belum ada bab yang ditambahkan.')}
+          </div>
+        )}
       </div>
     </div>
   )
