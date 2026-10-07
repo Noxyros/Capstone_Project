@@ -1,4 +1,46 @@
+@import "katex/dist/katex.min.css";
 @import "tailwindcss";
+
+@keyframes tutor-message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes tutor-typing {
+  0%, 60%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+.tutor-message-enter {
+  animation: tutor-message-enter 220ms ease-out both;
+}
+
+.tutor-typing-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+  background-color: currentColor;
+  animation: tutor-typing 900ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tutor-message-enter,
+  .tutor-typing-dot {
+    animation: none;
+  }
+}
 
 html {
   -webkit-font-smoothing: antialiased;
@@ -284,4 +326,14 @@ html.dark .border-sky-100 {
 html.dark .teacher-node-editor {
   background-color: #162329 !important;
   border-color: #26383f !important;
+}
+
+@keyframes tutor-message-reveal {
+  from {
+    clip-path: inset(0 100% 0 0 round 1rem);
+  }
+
+  to {
+    clip-path: inset(0 0 0 0 round 1rem);
+  }
 }

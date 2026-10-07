@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { CheckCircle2, Heart, Infinity as InfinityIcon, X, XCircle, Trophy } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { markNodeCompleted } from '@/src/lib/nodeProgress'
 import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
@@ -175,9 +176,9 @@ export default function NodeActivityPage() {
 
       <div className="flex flex-1 flex-col justify-center">
         {nodeData.type === 'lesson' ? (
-          <LessonActivity content={nodeData.content} onComplete={navigateBack} />
+          <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={navigateBack} />
         ) : (
-          <QuizActivity questions={nodeData.questions} onComplete={navigateBack} />
+          <QuizActivity title={nodeData.title} questions={nodeData.questions} onComplete={navigateBack} />
         )}
       </div>
 
@@ -241,8 +242,14 @@ export default function NodeActivityPage() {
   )
 }
 
-function LessonActivity({ content, onComplete }: { content: LessonContent; onComplete: () => void }) {
+function LessonActivity({ title, content, onComplete }: { title: string; content: LessonContent; onComplete: () => void }) {
   const { t } = useLanguage()
+  const mediaNote = content.kind === 'text'
+    ? ''
+    : t(
+      'The linked poster or document is not readable by the tutor yet. Describe the part you want help with.',
+      'Tutor belum dapat membaca poster atau dokumen yang ditautkan. Jelaskan bagian yang ingin kamu tanyakan.'
+    )
 
   return (
     <div className="space-y-6">
@@ -278,6 +285,15 @@ function LessonActivity({ content, onComplete }: { content: LessonContent; onCom
         )}
       </div>
 
+      <LearningTutor
+        context={{
+          kind: 'lesson',
+          title,
+          content: content.kind === 'text' ? content.value : '',
+          mediaNote,
+        }}
+      />
+
       <button
         type="button"
         onClick={onComplete}
@@ -294,7 +310,7 @@ type QuizResponse = {
   checked: boolean
 }
 
-function QuizActivity({ questions, onComplete }: { questions: QuizQuestion[]; onComplete: () => void }) {
+function QuizActivity({ title, questions, onComplete }: { title: string; questions: QuizQuestion[]; onComplete: () => void }) {
   const { t } = useLanguage()
   const { unlimitedHearts, setHearts } = useUser()
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -445,6 +461,23 @@ function QuizActivity({ questions, onComplete }: { questions: QuizQuestion[]; on
           })}
         </div>
       </div>
+
+      <LearningTutor
+        key={currentQuestion.id}
+        context={{
+          kind: 'quiz',
+          title,
+          question: currentQuestion.prompt,
+          choices: currentQuestion.options.map((option) => option.text),
+          answerStatus: isChecked ? 'checked' : 'unanswered',
+          selectedAnswers: isChecked
+            ? currentQuestion.options.filter((option) => selectedOptionIds.includes(option.id)).map((option) => option.text)
+            : [],
+          correctAnswers: isChecked
+            ? currentQuestion.options.filter((option) => option.isCorrect).map((option) => option.text)
+            : [],
+        }}
+      />
 
       {isChecked && (
         <div

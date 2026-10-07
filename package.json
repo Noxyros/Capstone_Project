@@ -11,9 +11,13 @@
     "@tensorflow/tfjs": "^4.22.0",
     "clsx": "^2.1.1",
     "framer-motion": "^13.4.0",
+    "katex": "^0.19.0",
     "lucide-react": "^1.47.0",
     "next": "^16.3.5",
     "nsfwjs": "^4.3.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-math": "^6.0.0",
     "tailwind-merge": "^3.7.0"
   },
   "devDependencies": {
