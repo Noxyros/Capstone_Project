@@ -8,25 +8,26 @@ import SubjectCard from '@/src/components/shared/SubjectCard'
 import { GraduationCap, Plus, Target } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
-import { loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 
 export default function HomePage() {
   const { t } = useLanguage()
-  const { role } = useAuth()
-  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const { role, user } = useAuth()
+  const curriculumScope = user?.id ?? 'public'
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
   const [curriculumError, setCurriculumError] = useState('')
 
   useEffect(() => {
     let active = true
-    void loadCurriculum()
+    void loadCurriculum(undefined, curriculumScope)
       .then((result) => { if (active) setSubjects(result) })
       .catch((error) => {
         console.error('Failed to load learner curriculum.', error)
         if (active) setCurriculumError(error instanceof Error ? error.message : t('Could not load subjects.', 'Tidak dapat memuat mata pelajaran.'))
       })
     return () => { active = false }
-  }, [])
+  }, [curriculumScope, t])
 
   return (
     <div className="space-y-8">
@@ -41,6 +42,7 @@ export default function HomePage() {
         ]}
         alreadyAttempted={false}
         xpReward={100}
+        previewOnly
       />
 
       <section>
@@ -49,7 +51,7 @@ export default function HomePage() {
             <Target className="w-6 h-6 text-indigo-500" /> {t('Daily Quests', 'Misi Harian')}
           </h2>
           <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">
-            {t('Resets in 14h', 'Reset dalam 14j')}
+            {t('Preview · tracking coming soon', 'Pratinjau · pelacakan segera hadir')}
           </span>
         </div>
 
@@ -60,6 +62,7 @@ export default function HomePage() {
             xpReward={20}
             current={1}
             target={1}
+            previewOnly
           />
           <DailyQuestCard
             title={t("Quick Thinker", "Pemikir Cepat")}
@@ -67,6 +70,7 @@ export default function HomePage() {
             xpReward={40}
             current={0}
             target={1}
+            previewOnly
           />
         </div>
       </section>

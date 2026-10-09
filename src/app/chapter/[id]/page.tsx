@@ -5,27 +5,30 @@ import { ArrowLeft } from 'lucide-react'
 import { useRouter, useParams } from 'next/navigation'
 import Roadmap from '@/src/components/shared/Roadmap'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
+import { useAuth } from '@/src/context/AuthContext'
 
 export default function ChapterRoadmapPage() {
   const { t } = useLanguage()
+  const { user } = useAuth()
+  const curriculumScope = user?.id ?? 'public'
   const router = useRouter()
   const params = useParams<{ id: string }>()
   const chapterId = params.id
-  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
   const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
-    void loadCurriculum()
+    void loadCurriculum(undefined, curriculumScope)
       .then((result) => { if (active) setSubjects(result) })
       .catch((loadError) => {
         console.error('Failed to load learner curriculum.', loadError)
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this roadmap.')
       })
     return () => { active = false }
-  }, [chapterId])
+  }, [chapterId, curriculumScope])
 
   const chapterData = subjects.flatMap((subject) => subject.chapters).find((chapter) => chapter.id === chapterId)
   const parentSubjectId = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))?.id

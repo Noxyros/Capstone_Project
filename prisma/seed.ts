@@ -33,7 +33,7 @@ async function main() {
       name: 'Streak Freeze',
       code: PowerUpType.STREAK_FREEZE,
       description: 'Protects your streak if you miss a day of practice.',
-      costXp: 100,
+      costGems: 200,
       icon: 'snowflake',
     },
   })
@@ -43,7 +43,7 @@ async function main() {
       name: 'Heart Refill',
       code: PowerUpType.HEART_REFILL,
       description: 'Instantly restores all lost hearts to 100%.',
-      costXp: 50,
+      costGems: 250,
       icon: 'heart',
     },
   })
@@ -52,8 +52,8 @@ async function main() {
     data: {
       name: 'Double XP Boost',
       code: PowerUpType.DOUBLE_XP,
-      description: 'Earn double XP on all completed lessons for 30 minutes.',
-      costXp: 150,
+      description: 'Earn double XP on completed activities for 15 minutes.',
+      costGems: 100,
       icon: 'zap',
     },
   })

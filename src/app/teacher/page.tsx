@@ -15,6 +15,8 @@ import {
   type CurriculumSubject,
 } from '@/src/lib/teacherContent'
 import { loadCurriculum, saveCurriculum } from '@/src/lib/curriculumClient'
+import { useAuth } from '@/src/context/AuthContext'
+import { getCachedCurriculum } from '@/src/lib/curriculumClient'
 
 const inputClass = 'w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-400'
 const labelClass = 'mb-1.5 block text-xs font-extrabold uppercase tracking-wide text-slate-500'
@@ -127,8 +129,11 @@ type GeneratedChapterDraft = {
 
 export default function TeacherPage() {
   const { t } = useLanguage()
-  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
-  const [savedSubjects, setSavedSubjects] = useState<CurriculumSubject[]>([])
+  const { user } = useAuth()
+  const curriculumScope = user?.id ?? 'public'
+  const initialSubjects = getCachedCurriculum('teacher', curriculumScope) ?? []
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>(initialSubjects)
+  const [savedSubjects, setSavedSubjects] = useState<CurriculumSubject[]>(initialSubjects)
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [selectedChapterId, setSelectedChapterId] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState('')
@@ -148,7 +153,7 @@ export default function TeacherPage() {
 
   useEffect(() => {
     let active = true
-    void loadCurriculum('teacher')
+    void loadCurriculum('teacher', curriculumScope)
       .then((initial) => {
         if (!active) return
         setSubjects(initial)
@@ -167,7 +172,7 @@ export default function TeacherPage() {
         if (active) setCurriculumReady(true)
       })
     return () => { active = false }
-  }, [])
+  }, [curriculumScope])
 
   const selectedSubject = subjects.find((subject) => subject.id === selectedSubjectId)
   const selectedChapter = selectedSubject?.chapters.find((chapter) => chapter.id === selectedChapterId)

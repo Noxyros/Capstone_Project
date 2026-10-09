@@ -5,26 +5,29 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
+import { useAuth } from '@/src/context/AuthContext'
 
 export default function SubjectDetailPage() {
   const { t } = useLanguage()
+  const { user } = useAuth()
+  const curriculumScope = user?.id ?? 'public'
   const params = useParams<{ id: string }>()
   const subjectId = params.id
-  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
   const [error, setError] = useState('')
 
   useEffect(() => {
     let active = true
-    void loadCurriculum()
+    void loadCurriculum(undefined, curriculumScope)
       .then((result) => { if (active) setSubjects(result) })
       .catch((loadError) => {
         console.error('Failed to load learner curriculum.', loadError)
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this subject.')
       })
     return () => { active = false }
-  }, [])
+  }, [curriculumScope])
 
   const subject = subjects.find((item) => item.id === subjectId)
 

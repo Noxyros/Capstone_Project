@@ -7,26 +7,33 @@ import { useLanguage } from '@/src/context/LanguageContext'
 import { useUser } from '@/src/context/UserContext'
 
 const GRADES = [7, 8, 9] as const
-const MAX_HEARTS = 5
-
-function StreakCalendar({ streak }: { streak: number }) {
+function StreakCalendar({ streak, activityDates }: { streak: number; activityDates: string[] }) {
   const { t, language } = useLanguage()
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth()
-  const today = now.getDate()
+  const dateParts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Jakarta',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date())
+  const datePart = (type: Intl.DateTimeFormatPartTypes) => dateParts.find((part) => part.type === type)?.value ?? ''
+  const todayKey = `${datePart('year')}-${datePart('month')}-${datePart('day')}`
+  const year = Number(datePart('year'))
+  const month = Number(datePart('month')) - 1
+  const today = Number(datePart('day'))
   const calendarWeekday = new Date(year, month, 1).getDay()
   const firstWeekday = language === 'id' ? (calendarWeekday + 6) % 7 : calendarWeekday
   const daysInMonth = new Date(year, month + 1, 0).getDate()
 
-  const monthLabel = now.toLocaleString(language === 'id' ? 'id-ID' : 'en-US', { month: 'long', year: 'numeric' })
+  const monthLabel = new Date(Date.UTC(year, month, 15)).toLocaleString(language === 'id' ? 'id-ID' : 'en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
   const weekdays = language === 'id' ? ['S', 'S', 'R', 'K', 'J', 'S', 'M'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
-  const activeDays = new Set<number>()
-  for (let i = 0; i < streak; i++) {
-    const d = new Date(year, month, today - i)
-    if (d.getMonth() === month) activeDays.add(d.getDate())
-  }
+  const activeDays = new Set(activityDates
+    .filter((date) => date.startsWith(todayKey.slice(0, 7)))
+    .map((date) => Number(date.slice(-2))))
 
   const cells: (number | null)[] = [
     ...Array.from({ length: firstWeekday }, () => null),
@@ -79,15 +86,29 @@ function MiniCard({ children }: { children: React.ReactNode }) {
 
 export default function StatsPanel() {
   const { t } = useLanguage()
-  const { gems, hearts, unlimitedHearts, streak, freezesEquipped, buyItem, setHearts, setUnlimitedHearts } = useUser()
+  const {
+    gems,
+    hearts,
+    maxHearts,
+    unlimitedHearts,
+    streak,
+    activityDates,
+    freezesEquipped,
+    doubleXpUntil,
+    isMutating,
+    isSuperModePending,
+    gameError,
+    buyPowerUp,
+    setSuperMode,
+    activateHeartSurge,
+  } = useUser()
   const [grade, setGrade] = useState<(typeof GRADES)[number]>(7)
   const [open, setOpen] = useState<string | null>(null)
-
-  const [xpBoostActive, setXpBoostActive] = useState(false)
-  const [xpBoostSecondsLeft, setXpBoostSecondsLeft] = useState(15 * 60)
-
-  const [gemSurgeActive, setGemSurgeActive] = useState(false)
-  const [gemSurgeSecondsLeft, setGemSurgeSecondsLeft] = useState(7 * 60)
+  const [now, setNow] = useState(() => Date.now())
+  const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
+  const xpBoostActive = xpBoostSecondsLeft > 0
+  const gemSurgeActive = xpBoostActive
+  const gemSurgeSecondsLeft = xpBoostSecondsLeft
 
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -100,25 +121,10 @@ export default function StatsPanel() {
   }, [])
 
   useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (xpBoostActive && xpBoostSecondsLeft > 0) {
-      interval = setInterval(() => setXpBoostSecondsLeft((prev) => prev - 1), 1000)
-    } else if (xpBoostSecondsLeft === 0) {
-      setXpBoostActive(false)
-    }
-    return () => clearInterval(interval)
-  }, [xpBoostActive, xpBoostSecondsLeft])
-
-  // Gem Surge Timer: Pauses if unlimitedHearts is true
-  useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (gemSurgeActive && !unlimitedHearts && gemSurgeSecondsLeft > 0) {
-      interval = setInterval(() => setGemSurgeSecondsLeft((prev) => prev - 1), 1000)
-    } else if (gemSurgeSecondsLeft === 0) {
-      setGemSurgeActive(false)
-    }
-    return () => clearInterval(interval)
-  }, [gemSurgeActive, gemSurgeSecondsLeft, unlimitedHearts])
+    if (!xpBoostActive) return
+    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [xpBoostActive])
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -129,29 +135,21 @@ export default function StatsPanel() {
   const toggle = (id: string) => setTimeout(() => setOpen((prev) => (prev === id ? null : id)), 0)
   const onStatClick = (id: string) => { if (window.innerWidth < 1024) toggle(id) }
 
-  const handleBuyHearts = () => buyItem(250, () => setHearts(5))
-  const handleBuyFreeze = () => buyItem(200, () => alert(t('Streak freeze purchased!', 'Pembeku streak berhasil dibeli!')))
-  const handleBuyXpBoost = () => buyItem(100, () => {
-    setXpBoostActive(true)
-    setXpBoostSecondsLeft(15 * 60)
-  })
+  const handleBuyHearts = () => void buyPowerUp('HEART_REFILL')
+  const handleBuyFreeze = () => void buyPowerUp('STREAK_FREEZE')
+  const handleBuyXpBoost = () => void buyPowerUp('DOUBLE_XP')
 
-  const handleToggleUnlimited = () => {
-    setUnlimitedHearts(!unlimitedHearts)
-  }
+  const handleToggleUnlimited = () => void setSuperMode(!unlimitedHearts)
 
-  const handleSacrificeSurge = () => {
-    if (!unlimitedHearts && hearts > 4 && !gemSurgeActive) {
-      setHearts(hearts - 4)
-      setGemSurgeActive(true)
-      setGemSurgeSecondsLeft(7 * 60)
-    }
-  }
+  const handleSacrificeSurge = () => void activateHeartSurge()
 
-  const isSurgeDisabled = gemSurgeActive || unlimitedHearts || hearts <= 4
+  const isSurgeDisabled = isMutating || gemSurgeActive || unlimitedHearts || hearts <= 4
+  const isHeartRefillDisabled = isMutating || isSuperModePending || unlimitedHearts || gems < 250 || hearts >= maxHearts
 
   return (
     <div ref={rootRef} className="relative flex items-center justify-between gap-2 font-extrabold w-full lg:flex-col lg:items-stretch">
+
+      {gameError && <p role="alert" className="rounded-xl bg-rose-50 p-2 text-xs font-bold text-rose-700">{gameError}</p>}
 
       {/* 1. Course Selector Button */}
       <div className="relative flex-1 lg:flex-none min-w-0">
@@ -201,7 +199,7 @@ export default function StatsPanel() {
           </button>
           <div className="hidden lg:group-hover/streak:block absolute top-full right-0 pt-2 w-72 z-50">
             <div className="bg-white border-2 border-slate-200 rounded-2xl shadow-xl p-5">
-              <StreakCalendar streak={streak} />
+              <StreakCalendar streak={streak} activityDates={activityDates} />
             </div>
           </div>
         </div>
@@ -221,7 +219,7 @@ export default function StatsPanel() {
                 <div className="flex items-center justify-between pb-2 border-b-2 border-slate-100">
                   <p className="font-extrabold text-rose-500 text-base flex items-center gap-1.5">
                     <Heart className="w-5 h-5 fill-rose-500" />
-                    {unlimitedHearts ? t('Unlimited Hearts', 'Hati Tak Terbatas') : t(`${hearts} / ${MAX_HEARTS} hearts`, `${hearts} / ${MAX_HEARTS} hati`)}
+                    {unlimitedHearts ? t('Unlimited Hearts', 'Hati Tak Terbatas') : t(`${hearts} / ${maxHearts} hearts`, `${hearts} / ${maxHearts} hati`)}
                   </p>
                 </div>
 
@@ -240,12 +238,17 @@ export default function StatsPanel() {
                       </div>
                     </div>
                     <button
+                      type="button"
                       onClick={handleToggleUnlimited}
-                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                      disabled={isSuperModePending}
+                      role="switch"
+                      aria-checked={unlimitedHearts}
+                      aria-label={t('Super Mode', 'Mode Super')}
+                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-100 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
                         }`}
                     >
                       <div
-                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-100 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
                       />
                     </button>
                   </div>
@@ -339,7 +342,7 @@ export default function StatsPanel() {
                       <X className="w-6 h-6" />
                     </button>
                   </div>
-                  <StreakCalendar streak={streak} />
+                  <StreakCalendar streak={streak} activityDates={activityDates} />
                   <button
                     onClick={() => setOpen(null)}
                     className="mt-6 w-full bg-orange-500 text-white font-extrabold py-3.5 rounded-2xl shadow-[0_4px_0_0_#ea580c] active:translate-y-[4px] active:shadow-none hover:bg-orange-400 transition-all uppercase tracking-wide"
@@ -377,12 +380,17 @@ export default function StatsPanel() {
                         </div>
                       </div>
                       <button
+                        type="button"
                         onClick={handleToggleUnlimited}
-                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                        disabled={isSuperModePending}
+                        role="switch"
+                        aria-checked={unlimitedHearts}
+                        aria-label={t('Super Mode', 'Mode Super')}
+                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-100 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
                           }`}
                       >
                         <div
-                          className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
+                          className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-100 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
                         />
                       </button>
                     </div>
@@ -434,7 +442,7 @@ export default function StatsPanel() {
                   <div className="space-y-4">
                     <button
                       onClick={handleBuyHearts}
-                      disabled={gems < 250 || hearts >= MAX_HEARTS}
+                      disabled={isHeartRefillDisabled}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
                     >
                       <div className="flex items-center gap-4">
@@ -443,7 +451,7 @@ export default function StatsPanel() {
                         </div>
                         <div className="text-left">
                           <div className="font-extrabold text-slate-700 text-lg">
-                            {hearts >= MAX_HEARTS ? t('Hearts Full', 'Hati Penuh') : t('Heart refill', 'Isi ulang hati')}
+                            {hearts >= maxHearts ? t('Hearts Full', 'Hati Penuh') : t('Heart refill', 'Isi ulang hati')}
                           </div>
                           <div className="text-xs font-bold text-slate-400 mt-0.5">
                             {t('Restore full health', 'Pulihkan kesehatan')}
@@ -457,7 +465,7 @@ export default function StatsPanel() {
 
                     <button
                       onClick={handleBuyXpBoost}
-                      disabled={gems < 100 || xpBoostActive}
+                      disabled={isMutating || gems < 100 || xpBoostActive}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
                     >
                       <div className="flex items-center gap-4">
@@ -480,7 +488,7 @@ export default function StatsPanel() {
 
                     <button
                       onClick={handleBuyFreeze}
-                      disabled={gems < 200 || freezesEquipped >= 2}
+                      disabled={isMutating || gems < 200 || freezesEquipped >= 2}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
                     >
                       <div className="flex items-center gap-4">

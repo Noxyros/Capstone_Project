@@ -3,10 +3,11 @@
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { LogOut, Globe, Volume2, Bell, Moon, Sun, HelpCircle, ChevronRight } from 'lucide-react'
+import { LogOut, Globe, Volume2, Bell, Moon, Sun, Monitor, HelpCircle, ChevronRight } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useTheme } from '@/src/context/ThemeContext'
 import { useAuth } from '@/src/context/AuthContext'
+import LogoutConfirmDialog from '@/src/components/shared/LogoutConfirmDialog'
 
 interface SettingsToggleRowProps {
   icon: React.ComponentType<{ className?: string }>
@@ -50,13 +51,12 @@ function SettingsToggleRow({ icon: Icon, title, iconBg, iconColor, checked, onCh
 export default function SettingsPage() {
   const router = useRouter()
   const { language, setLanguage, t } = useLanguage()
-  const { theme, setTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme } = useTheme()
   const { signOut } = useAuth()
 
   const [sound, setSound] = useState(true)
   const [reminders, setReminders] = useState(true)
   const [logoutOpen, setLogoutOpen] = useState(false)
-  const [logoutError, setLogoutError] = useState('')
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-10">
@@ -140,14 +140,39 @@ export default function SettingsPage() {
           onChange={setReminders}
         />
 
-        <SettingsToggleRow
-          icon={theme === 'dark' ? Moon : Sun}
-          title={t('Dark Mode', 'Mode Gelap')}
-          iconBg={theme === 'dark' ? 'bg-indigo-100' : 'bg-orange-50'}
-          iconColor={theme === 'dark' ? 'text-indigo-600' : 'text-orange-500'}
-          checked={theme === 'dark'}
-          onChange={(enabled) => setTheme(enabled ? 'dark' : 'light')}
-        />
+        <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className={`shrink-0 rounded-xl p-2.5 ${resolvedTheme === 'dark' ? 'bg-indigo-100 text-indigo-600' : 'bg-orange-50 text-orange-500'}`}>
+              {theme === 'system' ? <Monitor className="h-5 w-5" /> : resolvedTheme === 'dark' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-extrabold text-slate-800">{t('Appearance', 'Tampilan')}</p>
+              <p className="truncate text-xs font-medium text-slate-400">
+                {t('Choose how Questly looks', 'Pilih tampilan Questly')}
+              </p>
+            </div>
+          </div>
+          <div role="group" aria-label={t('Theme preference', 'Preferensi tema')} className="grid grid-cols-3 rounded-2xl border border-slate-200 bg-slate-100 p-1 sm:w-auto">
+            {([
+              { value: 'system', label: t('System', 'Sistem'), icon: Monitor },
+              { value: 'light', label: t('Light', 'Terang'), icon: Sun },
+              { value: 'dark', label: t('Dark', 'Gelap'), icon: Moon },
+            ] as const).map(({ value, label, icon: Icon }) => (
+              <button
+                key={value}
+                type="button"
+                aria-pressed={theme === value}
+                onClick={() => setTheme(value)}
+                className={`flex items-center justify-center gap-1.5 rounded-xl px-2.5 py-2 text-xs font-extrabold transition sm:px-3 ${
+                  theme === value ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <Icon aria-hidden="true" className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         {/* Mobile-Only Help Center Option */}
         <Link
@@ -177,42 +202,15 @@ export default function SettingsPage() {
         {t('Log Out', 'Keluar')}
       </button>
 
-      {logoutOpen && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4">
-            <h2 className="text-xl font-black text-slate-800">{t('Log out?', 'Keluar dari akun?')}</h2>
-            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-              {t('You will be signed out of this account on this device.', 'Kamu akan keluar dari akun ini di perangkat ini.')}
-            </p>
-            {logoutError && <p role="alert" className="text-sm font-bold text-rose-600">{logoutError}</p>}
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setLogoutOpen(false)}
-                className="flex-1 py-3 rounded-2xl font-extrabold text-xs bg-slate-100 text-slate-700 hover:bg-slate-200 transition"
-              >
-                {t('Cancel', 'Batal')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void signOut()
-                    .then(() => {
-                      setLogoutOpen(false)
-                      router.replace('/login')
-                    })
-                    .catch((error: unknown) => {
-                      setLogoutError(error instanceof Error ? error.message : t('Could not sign out. Please try again.', 'Gagal keluar. Silakan coba lagi.'))
-                    })
-                }}
-                className="flex-1 py-3 rounded-2xl font-extrabold text-xs text-white bg-rose-600 hover:bg-rose-700 transition"
-              >
-                {t('Log out', 'Keluar')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LogoutConfirmDialog
+        open={logoutOpen}
+        t={t}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={async () => {
+          await signOut()
+          router.replace('/login')
+        }}
+      />
     </div>
   )
 }

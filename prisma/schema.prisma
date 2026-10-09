@@ -41,10 +41,13 @@ model User {
   role               Role                   @default(STUDENT)
   streak             Int                    @default(0)
   totalXp            Int                    @default(0)
+  gems               Int                    @default(500)
   hearts             Int                    @default(5)
   maxHearts          Int                    @default(5)
+  superMode          Boolean                @default(false)
   doubleXpUntil      DateTime?
   lastActive         DateTime               @default(now())
+  lastActivityDate   String?                @db.VarChar(10)
   powerUps           UserPowerUp[]
   progress           UserProgress[]
   questProgress      UserQuestProgress[]
@@ -57,6 +60,10 @@ model User {
   createdSubjects    Subject[]              @relation("SubjectCreator")
   subjectEnrollments SubjectEnrollment[]
   nodeProgress       NodeProgress[]
+  rewardEvents       RewardEvent[]
+  quizAttempts       QuizAttempt[]
+  quizAnswers        QuizAnswer[]
+  activityDays       ActivityDay[]
 }
 
 model PowerUp {
@@ -64,7 +71,7 @@ model PowerUp {
   name         String // e.g., "Streak Freeze"
   code         PowerUpType   @unique
   description  String
-  costXp       Int           @default(50)
+  costGems     Int
   icon         String // e.g., "snowflake", "heart", "gem"
   userPowerUps UserPowerUp[]
 }
@@ -168,30 +175,32 @@ model Chapter {
 }
 
 model RoadmapNode {
-  id          String             @id
-  title       String
-  order       Int                @default(1)
-  type        RoadmapNodeType
-  contentType RoadmapContentType @default(TEXT)
-  content     String             @db.Text
-  resourceUrl String             @db.Text
-  isPublished Boolean            @default(true)
-  chapterId   String
-  chapter     Chapter            @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  questions   Question[]
-  progress    NodeProgress[]
-  createdAt   DateTime           @default(now())
-  updatedAt   DateTime           @updatedAt
+  id           String             @id
+  title        String
+  order        Int                @default(1)
+  type         RoadmapNodeType
+  contentType  RoadmapContentType @default(TEXT)
+  content      String             @db.Text
+  resourceUrl  String             @db.Text
+  isPublished  Boolean            @default(true)
+  chapterId    String
+  chapter      Chapter            @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  questions    Question[]
+  progress     NodeProgress[]
+  quizAttempts QuizAttempt[]
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@index([chapterId, order])
 }
 
 model Question {
-  id      String      @id @default(uuid())
-  prompt  String
-  nodeId  String
-  node    RoadmapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
-  options Option[]
+  id          String       @id @default(uuid())
+  prompt      String
+  nodeId      String
+  node        RoadmapNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  options     Option[]
+  quizAnswers QuizAnswer[]
 
   @@index([nodeId])
 }
@@ -238,4 +247,58 @@ model NodeProgress {
 
   @@unique([userId, nodeId])
   @@index([nodeId])
+}
+
+model RewardEvent {
+  id             String   @id @default(uuid())
+  userId         String
+  idempotencyKey String
+  xpDelta        Int      @default(0)
+  gemsDelta      Int      @default(0)
+  createdAt      DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+
+model QuizAttempt {
+  id          String       @id @default(uuid())
+  userId      String
+  nodeId      String
+  startedAt   DateTime     @default(now())
+  completedAt DateTime?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  node        RoadmapNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
+  answers     QuizAnswer[]
+
+  @@index([userId, nodeId, startedAt])
+}
+
+model QuizAnswer {
+  id                String      @id @default(uuid())
+  userId            String
+  attemptId         String
+  questionId        String
+  selectedOptionIds String[]
+  isCorrect         Boolean
+  heartLost         Boolean     @default(false)
+  createdAt         DateTime    @default(now())
+  user              User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  attempt           QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question          Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@unique([attemptId, questionId])
+  @@index([userId, createdAt])
+}
+
+model ActivityDay {
+  id        String   @id @default(uuid())
+  userId    String
+  date      String   @db.VarChar(10)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId, date])
 }
