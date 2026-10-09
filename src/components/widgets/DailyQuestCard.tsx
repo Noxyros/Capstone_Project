@@ -1,5 +1,7 @@
 'use client'
 
+import { useLanguage } from '@/src/context/LanguageContext'
+
 interface DailyQuestCardProps {
   title: string
   description: string
@@ -15,6 +17,7 @@ export default function DailyQuestCard({
   current,
   target,
 }: DailyQuestCardProps) {
+  const { t } = useLanguage()
   const completed = current >= target
   const progress = Math.min(100, Math.round((current / target) * 100))
 
@@ -41,7 +44,7 @@ export default function DailyQuestCard({
               : 'bg-amber-100 text-amber-600'
           }`}
         >
-          {completed ? 'Done' : `+${xpReward} XP`}
+          {completed ? t('Done', 'Selesai') : `+${xpReward} XP`}
         </div>
       </div>
 

@@ -5,8 +5,8 @@ import { useRouter, useParams } from 'next/navigation'
 import { CheckCircle2, Heart, Infinity as InfinityIcon, X, XCircle, Trophy } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
-import { markNodeCompleted } from '@/src/lib/nodeProgress'
-import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
+import { loadCurriculum, saveNodeProgress } from '@/src/lib/curriculumClient'
+import type { CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
 
 type QuizOption = {
@@ -36,12 +36,48 @@ export default function NodeActivityPage() {
   const router = useRouter()
   const params = useParams<{ id: string; nodeId: string }>()
   const { id: chapterId, nodeId } = params
-  const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const [nodeData, setNodeData] = useState<NodeData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [loadError, setLoadError] = useState('')
+  const [progressError, setProgressError] = useState('')
   const [isExitDialogOpen, setIsExitDialogOpen] = useState(false)
 
   useEffect(() => {
-    setSubjects(readCurriculum(createDefaultCurriculum(t)))
-  }, [t])
+    let active = true
+    void loadCurriculum()
+      .then((subjects) => {
+        const node: CurriculumNode | undefined = subjects
+          .flatMap((subject) => subject.chapters)
+          .find((chapter) => chapter.id === chapterId)
+          ?.nodes.find((item) => item.id === nodeId)
+        if (!active) return
+        if (!node) {
+          setLoadError(t('This learning activity is unavailable.', 'Aktivitas belajar ini tidak tersedia.'))
+          return
+        }
+        setNodeData(node.type === 'quiz'
+          ? { type: 'quiz', title: node.title, questions: node.questions }
+          : {
+            type: 'lesson',
+            title: node.title,
+            content: node.contentType === 'text' || !node.resourceUrl
+              ? { kind: 'text', value: node.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') }
+              : node.contentType === 'poster'
+                ? { kind: 'poster', src: node.resourceUrl, alt: node.title }
+                : {
+                  kind: 'material',
+                  src: node.resourceUrl,
+                  format: node.resourceUrl.toLowerCase().endsWith('.pdf') ? 'pdf' : 'ebook',
+                },
+          })
+      })
+      .catch((error) => {
+        console.error('Failed to load learning activity.', error)
+        if (active) setLoadError(error instanceof Error ? error.message : t('Could not load this activity.', 'Tidak dapat memuat aktivitas ini.'))
+      })
+      .finally(() => { if (active) setIsLoading(false) })
+    return () => { active = false }
+  }, [chapterId, nodeId])
 
   useEffect(() => {
     if (!isExitDialogOpen) return
@@ -52,94 +88,27 @@ export default function NodeActivityPage() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [isExitDialogOpen])
 
-  const mockNodeData: Record<string, NodeData> = {
-    'node-1': {
-      type: 'lesson',
-      title: t('Base and Exponents', 'Basis dan Eksponen'),
-      content: {
-        kind: 'text',
-        value: t(
-          'An exponent refers to the number of times a number is multiplied by itself. For example, 2 to the 3rd power (written like 2³) means: 2 × 2 × 2 = 8. The number 2 is the base, and 3 is the exponent.',
-          'Eksponen mengacu pada berapa kali suatu angka dikalikan dengan dirinya sendiri. Misalnya, 2 pangkat 3 (ditulis 2³) berarti: 2 × 2 × 2 = 8. Angka 2 adalah basis, dan 3 adalah eksponen.'
-        )
-      }
-    },
-    'node-2': {
-      type: 'quiz',
-      title: t('Exponent Rules Quiz', 'Kuis Aturan Eksponen'),
-      questions: [
-        {
-          id: 'q1',
-          prompt: t('What is the value of 3²?', 'Berapa nilai dari 3²?'),
-          options: [
-            { id: 'o1', text: '6', isCorrect: false },
-            { id: 'o2', text: '9', isCorrect: true },
-            { id: 'o3', text: '27', isCorrect: false },
-            { id: 'o4', text: '12', isCorrect: false }
-          ]
-        },
-        {
-          id: 'q2',
-          prompt: t('Simplify: x² × x³', 'Sederhanakan: x² × x³'),
-          options: [
-            { id: 'o1', text: 'x⁶', isCorrect: false },
-            { id: 'o2', text: 'x⁵', isCorrect: true },
-            { id: 'o3', text: '2x⁵', isCorrect: false },
-            { id: 'o4', text: 'x', isCorrect: false }
-          ]
-        }
-      ]
+  const completeActivity = async (score?: number) => {
+    setProgressError('')
+    try {
+      await saveNodeProgress(nodeId, score)
+      router.push(`/chapter/${chapterId}`)
+    } catch (error) {
+      console.error('Failed to save completed activity.', error)
+      setProgressError(error instanceof Error ? error.message : t('Could not save your progress. Please try again.', 'Tidak dapat menyimpan progres. Silakan coba lagi.'))
     }
-  }
-
-  const curriculumNode = subjects
-    .flatMap((subject) => subject.chapters)
-    .find((chapter) => chapter.id === chapterId)
-    ?.nodes.find((node) => node.id === nodeId)
-  const chapterExists = subjects.some((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))
-  const savedNodeData: NodeData | undefined = curriculumNode
-    ? curriculumNode.type === 'quiz'
-      ? { type: 'quiz', title: curriculumNode.title, questions: curriculumNode.questions }
-      : {
-          type: 'lesson',
-          title: curriculumNode.title,
-          content: curriculumNode.contentType === 'text'
-            ? { kind: 'text', value: curriculumNode.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') }
-            : curriculumNode.contentType === 'poster'
-              && curriculumNode.resourceUrl
-              ? { kind: 'poster', src: curriculumNode.resourceUrl, alt: curriculumNode.title }
-              : curriculumNode.contentType === 'material' && curriculumNode.resourceUrl
-                ? {
-                  kind: 'material',
-                  src: curriculumNode.resourceUrl,
-                  format: curriculumNode.resourceUrl.toLowerCase().endsWith('.pdf') ? 'pdf' : 'ebook',
-                }
-                : { kind: 'text', value: curriculumNode.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') },
-        }
-    : undefined
-
-  const nodeData = savedNodeData ?? (chapterExists ? mockNodeData[nodeId] : undefined) ?? {
-    type: 'lesson' as const,
-    title: t('Activity Not Found', 'Aktivitas Tidak Ditemukan'),
-    content: {
-      kind: 'text' as const,
-      value: t('This material is currently unavailable.', 'Materi ini saat ini tidak tersedia.')
-    }
-  }
-
-  const navigateBack = () => {
-    markNodeCompleted(chapterId, nodeId)
-    router.push(`/chapter/${chapterId}`)
   }
 
   const requestExit = () => {
-    if (nodeData.type === 'quiz') {
+    if (nodeData?.type === 'quiz') {
       setIsExitDialogOpen(true)
       return
     }
-    markNodeCompleted(chapterId, nodeId)
-    router.push(`/chapter/${chapterId}`)
+    void completeActivity()
   }
+
+  if (isLoading) return <p role="status" className="p-8 text-center font-bold text-slate-500">{t('Loading activity…', 'Memuat aktivitas…')}</p>
+  if (loadError || !nodeData) return <p role="alert" className="p-8 text-center font-bold text-rose-700">{loadError || t('This activity is unavailable.', 'Aktivitas ini tidak tersedia.')}</p>
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7">
@@ -174,11 +143,13 @@ export default function NodeActivityPage() {
         </div>
       </div>
 
+      {progressError && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{progressError}</p>}
+
       <div className="flex flex-1 flex-col justify-center">
         {nodeData.type === 'lesson' ? (
-          <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={navigateBack} />
+          <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={() => { void completeActivity() }} />
         ) : (
-          <QuizActivity title={nodeData.title} questions={nodeData.questions} onComplete={navigateBack} />
+          <QuizActivity title={nodeData.title} questions={nodeData.questions} onComplete={(score) => { void completeActivity(score) }} />
         )}
       </div>
 
@@ -310,7 +281,7 @@ type QuizResponse = {
   checked: boolean
 }
 
-function QuizActivity({ title, questions, onComplete }: { title: string; questions: QuizQuestion[]; onComplete: () => void }) {
+function QuizActivity({ title, questions, onComplete }: { title: string; questions: QuizQuestion[]; onComplete: (score?: number) => void }) {
   const { t } = useLanguage()
   const { unlimitedHearts, setHearts } = useUser()
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -385,7 +356,7 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
         </p>
         <button
           type="button"
-          onClick={onComplete}
+          onClick={() => onComplete(Math.round((score / questions.length) * 100))}
           className="flex w-full items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-4 rounded-2xl border-b-4 border-indigo-800 transition-all active:border-b-0 active:translate-y-1"
         >
           {t('Finish', 'Selesai')}

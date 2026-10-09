@@ -31,7 +31,7 @@ export default function RightRail() {
 
   // Heart refill is now 250
   const handleBuyHearts = () => buyItem(250, () => setHearts(5)) 
-  const handleBuyFreeze = () => buyItem(200, () => alert('Streak freeze purchased!'))
+  const handleBuyFreeze = () => buyItem(200, () => alert(t('Streak freeze purchased!', 'Pembeku streak berhasil dibeli!')))
   const handleBuyXpBoost = () => buyItem(100, () => {
     setXpBoostActive(true)
     setXpBoostSecondsLeft(15 * 60)

@@ -16,7 +16,8 @@ export default function PracticePage() {
       descEn: 'Revisit recent questions you got wrong in your lessons.',
       descId: 'Latih kembali soal-soal yang salah pada pelajaran terakhir.',
       icon: RotateCcw,
-      badge: '7 Available',
+      badgeEn: '7 Available',
+      badgeId: '7 Tersedia',
       color: 'bg-rose-100 border-rose-200 text-rose-600', // Deepened text color for better contrast
     },
     {
@@ -26,7 +27,8 @@ export default function PracticePage() {
       descEn: 'Answer 10 fast questions under time pressure for extra XP.',
       descId: 'Jawab 10 soal cepat untuk mendapatkan bonus XP.',
       icon: Zap,
-      badge: '+30 XP',
+      badgeEn: '+30 XP',
+      badgeId: '+30 XP',
       color: 'bg-amber-100 border-amber-200 text-amber-600',
     },
     {
@@ -36,7 +38,8 @@ export default function PracticePage() {
       descEn: 'Target modules where your score dropped below 80%.',
       descId: 'Fokus pada modul dengan skor di bawah 80%.',
       icon: Target,
-      badge: '2 Topics',
+      badgeEn: '2 Topics',
+      badgeId: '2 Topik',
       color: 'bg-indigo-100 border-indigo-200 text-indigo-600',
     },
   ]
@@ -80,7 +83,7 @@ export default function PracticePage() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-1 sm:mb-1 gap-2 sm:gap-0">
                   <h2 className="text-lg font-extrabold text-slate-700">{t(mode.titleEn, mode.titleId)}</h2>
                   <span className="text-xs font-extrabold text-indigo-500 bg-indigo-50 px-2.5 py-1 rounded-lg uppercase tracking-wide inline-block w-fit">
-                    {mode.badge}
+                    {t(mode.badgeEn, mode.badgeId)}
                   </span>
                 </div>
                 

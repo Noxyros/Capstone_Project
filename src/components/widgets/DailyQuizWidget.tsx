@@ -15,20 +15,19 @@ interface DailyQuizProps {
   xpReward?: number
 }
 
-const defaultOptions = [
-  { id: '1', text: 'Option A', isCorrect: false },
-  { id: '2', text: 'Option B', isCorrect: true },
-  { id: '3', text: 'Option C', isCorrect: false },
-]
-
 export default function DailyQuizWidget({
   title,
   prompt,
-  options = defaultOptions,
+  options,
   alreadyAttempted = false,
   xpReward = 50,
 }: DailyQuizProps) {
   const { t } = useLanguage()
+  const displayOptions = options ?? [
+    { id: '1', text: t('Option A', 'Pilihan A'), isCorrect: false },
+    { id: '2', text: t('Option B', 'Pilihan B'), isCorrect: true },
+    { id: '3', text: t('Option C', 'Pilihan C'), isCorrect: false },
+  ]
   const [isOpen, setIsOpen] = useState(false)
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
   const [isSubmitted, setIsSubmitted] = useState(alreadyAttempted)
@@ -106,7 +105,7 @@ export default function DailyQuizWidget({
               <h2 className="text-xl font-extrabold text-slate-700 mb-2">{displayPrompt}</h2>
 
               <div className="space-y-3 my-6">
-                {options.map((opt) => {
+                {displayOptions.map((opt) => {
                   let btnStyle = 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700'
                   if (isSubmitted && opt.id === selectedOption) {
                     btnStyle = opt.isCorrect

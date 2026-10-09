@@ -15,11 +15,12 @@ function StreakCalendar({ streak }: { streak: number }) {
   const year = now.getFullYear()
   const month = now.getMonth()
   const today = now.getDate()
-  const firstWeekday = new Date(year, month, 1).getDay()
+  const calendarWeekday = new Date(year, month, 1).getDay()
+  const firstWeekday = language === 'id' ? (calendarWeekday + 6) % 7 : calendarWeekday
   const daysInMonth = new Date(year, month + 1, 0).getDate()
 
   const monthLabel = now.toLocaleString(language === 'id' ? 'id-ID' : 'en-US', { month: 'long', year: 'numeric' })
-  const weekdays = language === 'id' ? ['M', 'S', 'S', 'R', 'K', 'J', 'S'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S']
+  const weekdays = language === 'id' ? ['S', 'S', 'R', 'K', 'J', 'S', 'M'] : ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
   const activeDays = new Set<number>()
   for (let i = 0; i < streak; i++) {
@@ -129,7 +130,7 @@ export default function StatsPanel() {
   const onStatClick = (id: string) => { if (window.innerWidth < 1024) toggle(id) }
 
   const handleBuyHearts = () => buyItem(250, () => setHearts(5))
-  const handleBuyFreeze = () => buyItem(200, () => alert("Streak freeze purchased!"))
+  const handleBuyFreeze = () => buyItem(200, () => alert(t('Streak freeze purchased!', 'Pembeku streak berhasil dibeli!')))
   const handleBuyXpBoost = () => buyItem(100, () => {
     setXpBoostActive(true)
     setXpBoostSecondsLeft(15 * 60)
@@ -257,12 +258,12 @@ export default function StatsPanel() {
                       <Sparkles className="w-5 h-5 text-indigo-500 shrink-0" />
                       <div>
                         <div className="text-xs font-black uppercase tracking-wide text-slate-700">
-                          {t('Gems Surge', 'Surge Permata')}
+                          {t('Double XP', 'Double XP')}
                         </div>
                         <div className="text-[11px] font-bold mt-0.5 text-slate-400">
                           {gemSurgeActive
                             ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
-                            : t('Needs 5 to sacrifice 4', 'Butuh 5 untuk korbankan 4')}
+                            : t('Sacrifice 4 hearts', 'Korbankan 4 hati')}
                         </div>
                       </div>
                     </div>
@@ -275,7 +276,7 @@ export default function StatsPanel() {
                         ? t('Disabled', 'Nonaktif')
                         : gemSurgeActive
                           ? t('Active', 'Aktif')
-                          : t('Risk It', 'Risiko')}
+                          : t('Risk It', 'Korbankan')}
                     </button>
                   </div>
                 </div>
@@ -392,12 +393,12 @@ export default function StatsPanel() {
                         <Sparkles className="w-6 h-6 text-indigo-500 shrink-0" />
                         <div className="text-left">
                           <div className="font-extrabold text-slate-800 text-base uppercase tracking-wide">
-                            {t('Gems Surge', 'Surge Permata')}
+                            {t('Double XP', 'Double XP')}
                           </div>
                           <div className="text-xs font-bold mt-0.5 text-slate-500">
                             {gemSurgeActive
                               ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
-                              : t('Needs 5 to sacrifice 4', 'Butuh 5 untuk korbankan 4')}
+                              : t('Sacrifice 4 hearts', 'Korbankan 4 hati')}
                           </div>
                         </div>
                       </div>

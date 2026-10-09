@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { LogOut, Globe, Volume2, Bell, Moon, Sun, HelpCircle, ChevronRight } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useTheme } from '@/src/context/ThemeContext'
+import { useAuth } from '@/src/context/AuthContext'
 
 interface SettingsToggleRowProps {
   icon: React.ComponentType<{ className?: string }>
@@ -50,10 +51,12 @@ export default function SettingsPage() {
   const router = useRouter()
   const { language, setLanguage, t } = useLanguage()
   const { theme, setTheme } = useTheme()
+  const { signOut } = useAuth()
 
   const [sound, setSound] = useState(true)
   const [reminders, setReminders] = useState(true)
   const [logoutOpen, setLogoutOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-10">
@@ -96,6 +99,8 @@ export default function SettingsPage() {
           <div className="flex bg-slate-100 p-1 rounded-2xl border border-slate-200 shrink-0">
             <button
               type="button"
+              aria-label={t('English', 'Bahasa Inggris')}
+              aria-pressed={language === 'en'}
               onClick={() => setLanguage('en')}
               className={`w-11 py-1.5 rounded-xl text-xs font-black transition text-center ${
                 language === 'en' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -105,6 +110,8 @@ export default function SettingsPage() {
             </button>
             <button
               type="button"
+              aria-label={t('Indonesian', 'Bahasa Indonesia')}
+              aria-pressed={language === 'id'}
               onClick={() => setLanguage('id')}
               className={`w-11 py-1.5 rounded-xl text-xs font-black transition text-center ${
                 language === 'id' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
@@ -175,8 +182,9 @@ export default function SettingsPage() {
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-4">
             <h2 className="text-xl font-black text-slate-800">{t('Log out?', 'Keluar dari akun?')}</h2>
             <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-              {t('Your learning progress is saved locally until cloud authentication is configured.', 'Kemajuan belajar kamu tersimpan lokal.')}
+              {t('You will be signed out of this account on this device.', 'Kamu akan keluar dari akun ini di perangkat ini.')}
             </p>
+            {logoutError && <p role="alert" className="text-sm font-bold text-rose-600">{logoutError}</p>}
             <div className="flex gap-3 pt-2">
               <button
                 type="button"
@@ -187,7 +195,16 @@ export default function SettingsPage() {
               </button>
               <button
                 type="button"
-                onClick={() => router.push('/login')}
+                onClick={() => {
+                  void signOut()
+                    .then(() => {
+                      setLogoutOpen(false)
+                      router.replace('/login')
+                    })
+                    .catch((error: unknown) => {
+                      setLogoutError(error instanceof Error ? error.message : t('Could not sign out. Please try again.', 'Gagal keluar. Silakan coba lagi.'))
+                    })
+                }}
                 className="flex-1 py-3 rounded-2xl font-extrabold text-xs text-white bg-rose-600 hover:bg-rose-700 transition"
               >
                 {t('Log out', 'Keluar')}

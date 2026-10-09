@@ -9,6 +9,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
   const isNodeActivity = /^\/chapter\/[^/]+\/node\/[^/]+$/.test(pathname)
 
+  if (pathname === '/login' || pathname.startsWith('/auth/')) {
+    return <main className="min-h-dvh w-full">{children}</main>
+  }
+
   if (isNodeActivity) {
     return <main className="min-h-dvh w-full">{children}</main>
   }

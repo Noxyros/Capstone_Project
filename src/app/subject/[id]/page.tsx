@@ -5,17 +5,26 @@ import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
+import { loadCurriculum } from '@/src/lib/curriculumClient'
+import type { CurriculumSubject } from '@/src/lib/teacherContent'
 
 export default function SubjectDetailPage() {
   const { t } = useLanguage()
   const params = useParams<{ id: string }>()
   const subjectId = params.id
   const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    setSubjects(readCurriculum(createDefaultCurriculum(t)))
-  }, [t])
+    let active = true
+    void loadCurriculum()
+      .then((result) => { if (active) setSubjects(result) })
+      .catch((loadError) => {
+        console.error('Failed to load learner curriculum.', loadError)
+        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this subject.')
+      })
+    return () => { active = false }
+  }, [])
 
   const subject = subjects.find((item) => item.id === subjectId)
 
@@ -36,6 +45,7 @@ export default function SubjectDetailPage() {
       </div>
 
       <div className="space-y-3">
+        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
         {subject?.chapters.map((chapter) => {
           const isCompleted = chapter.chaptersStatus === 'completed'
           const isInProgress = chapter.chaptersStatus === 'in_progress'

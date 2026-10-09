@@ -5,13 +5,16 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { Compass, Dumbbell, Trophy, User, Ellipsis, Settings, CircleHelp, LogOut, GraduationCap } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { useAuth } from '@/src/context/AuthContext'
 
 export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { t } = useLanguage()
+  const { signOut, role } = useAuth()
   const pathname = usePathname()
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
+  const [logoutError, setLogoutError] = useState('')
   const moreRef = useRef<HTMLDivElement>(null)
 
   const navItems = [
@@ -19,7 +22,9 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
     { id: 'practice', name: t('Practice', 'Latihan'), href: '/practice', icon: Dumbbell, color: 'text-emerald-500' },
     { id: 'leaderboard', name: t('Leaderboard', 'Liga'), href: '/leaderboard', icon: Trophy, color: 'text-amber-500' },
     { id: 'profile', name: t('Profile', 'Profil'), href: '/profile', icon: User, color: 'text-rose-500' },
-    { id: 'teacher', name: t('Teacher studio', 'Studio guru'), href: '/teacher', icon: GraduationCap, color: 'text-sky-500' },
+    ...((role === 'TEACHER' || role === 'ADMIN')
+      ? [{ id: 'teacher', name: t('Teacher studio', 'Studio guru'), href: '/teacher', icon: GraduationCap, color: 'text-sky-500' }]
+      : []),
   ]
 
   useEffect(() => {
@@ -125,8 +130,9 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border-2 border-slate-100">
             <h2 className="text-lg font-extrabold text-slate-700">{t('Log out?', 'Keluar?')}</h2>
             <p className="text-sm font-semibold text-slate-500 mt-2 leading-relaxed">
-              {t('Your streak stays saved. You can pick up tomorrow right where you left off.', 'Streak Anda tetap tersimpan. Anda dapat melanjutkannya besok tepat di tempat Anda berhenti.')}
+              {t('You will be signed out of this account on this device.', 'Kamu akan keluar dari akun ini di perangkat ini.')}
             </p>
+            {logoutError && <p role="alert" className="mt-3 text-sm font-bold text-rose-600">{logoutError}</p>}
             <div className="flex gap-2 mt-5">
               <button
                 type="button"
@@ -138,8 +144,14 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
               <button
                 type="button"
                 onClick={() => {
-                  setLogoutOpen(false)
-                  router.push('/login')
+                  void signOut()
+                    .then(() => {
+                      setLogoutOpen(false)
+                      router.replace('/login')
+                    })
+                    .catch((error: unknown) => {
+                      setLogoutError(error instanceof Error ? error.message : t('Could not sign out. Please try again.', 'Gagal keluar. Silakan coba lagi.'))
+                    })
                 }}
                 className="flex-1 py-2.5 rounded-2xl font-extrabold text-white bg-rose-500"
               >

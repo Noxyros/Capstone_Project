@@ -5,29 +5,31 @@ import { ArrowLeft } from 'lucide-react'
 import { useRouter, useParams } from 'next/navigation'
 import Roadmap from '@/src/components/shared/Roadmap'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { getCompletedNodeIds } from '@/src/lib/nodeProgress'
-import { createDefaultCurriculum, readCurriculum, type CurriculumSubject } from '@/src/lib/teacherContent'
+import { loadCurriculum } from '@/src/lib/curriculumClient'
+import type { CurriculumSubject } from '@/src/lib/teacherContent'
 
 export default function ChapterRoadmapPage() {
   const { t } = useLanguage()
   const router = useRouter()
   const params = useParams<{ id: string }>()
   const chapterId = params.id
-  const [completedNodeIds, setCompletedNodeIds] = useState<string[]>([])
   const [subjects, setSubjects] = useState<CurriculumSubject[]>([])
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    setCompletedNodeIds(getCompletedNodeIds(chapterId))
-    setSubjects(readCurriculum(createDefaultCurriculum(t)))
-  }, [chapterId, t])
+    let active = true
+    void loadCurriculum()
+      .then((result) => { if (active) setSubjects(result) })
+      .catch((loadError) => {
+        console.error('Failed to load learner curriculum.', loadError)
+        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this roadmap.')
+      })
+    return () => { active = false }
+  }, [chapterId])
 
   const chapterData = subjects.flatMap((subject) => subject.chapters).find((chapter) => chapter.id === chapterId)
   const parentSubjectId = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))?.id
-  const roadmapNodes = chapterData?.nodes.map((node) => ({
-    ...node,
-    type: node.type,
-    status: node.status !== 'locked' && completedNodeIds.includes(node.id) ? 'completed' as const : node.status,
-  })) ?? []
+  const roadmapNodes = chapterData?.nodes ?? []
 
   return (
     <div className="max-w-2xl mx-auto pb-24">
@@ -51,7 +53,9 @@ export default function ChapterRoadmapPage() {
       </div>
 
       <div className="bg-slate-50 rounded-3xl p-4 sm:p-8 overflow-hidden relative border-2 border-slate-200">
-        {roadmapNodes.length > 0 ? (
+        {error ? (
+          <p role="alert" className="py-10 text-center font-bold text-rose-700">{error}</p>
+        ) : roadmapNodes.length > 0 ? (
           <Roadmap nodes={roadmapNodes} chapterId={chapterId} />
         ) : (
           <div className="text-center text-slate-400 font-bold py-10">

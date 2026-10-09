@@ -1,9 +1,13 @@
 // prisma/seed.ts
-import { PrismaClient, Role, PowerUpType } from '@prisma/client'
+import { PrismaClient, Role, PowerUpType, RoadmapContentType, RoadmapNodeType } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
 async function main() {
+  if (process.env.ALLOW_DESTRUCTIVE_SEED !== 'true') {
+    throw new Error('Refusing to clear database data. Set ALLOW_DESTRUCTIVE_SEED=true only for a disposable development database.')
+  }
+
   // Clear old tables
   await prisma.userDailyQuizAttempt.deleteMany()
   await prisma.dailyQuizOption.deleteMany()
@@ -12,9 +16,12 @@ async function main() {
   await prisma.dailyQuest.deleteMany()
   await prisma.userPowerUp.deleteMany()
   await prisma.powerUp.deleteMany()
+  await prisma.nodeProgress.deleteMany()
+  await prisma.subjectEnrollment.deleteMany()
   await prisma.userProgress.deleteMany()
   await prisma.option.deleteMany()
   await prisma.question.deleteMany()
+  await prisma.roadmapNode.deleteMany()
   await prisma.chapter.deleteMany()
   await prisma.subject.deleteMany()
   await prisma.grade.deleteMany()
@@ -145,15 +152,29 @@ async function main() {
       order: 1,
       subjectId: math.id,
       summaryText: 'Learn rules of exponents: $a^m \\times a^n = a^{m+n}$.',
-      questions: {
+      nodes: {
         create: [
           {
-            prompt: 'What is $2^3$?',
-            options: {
+            id: 'seed-node-exponents-quiz',
+            title: 'Exponents Quiz',
+            order: 1,
+            type: RoadmapNodeType.QUIZ,
+            contentType: RoadmapContentType.TEXT,
+            content: '',
+            resourceUrl: '',
+            isPublished: true,
+            questions: {
               create: [
-                { text: '8', isCorrect: true },
-                { text: '6', isCorrect: false },
-                { text: '9', isCorrect: false },
+                {
+                  prompt: 'What is $2^3$?',
+                  options: {
+                    create: [
+                      { text: '8', isCorrect: true },
+                      { text: '6', isCorrect: false },
+                      { text: '9', isCorrect: false },
+                    ],
+                  },
+                },
               ],
             },
           },
@@ -168,14 +189,28 @@ async function main() {
       order: 2,
       subjectId: math.id,
       summaryText: 'Logarithms are the inverse operation of exponentiation.',
-      questions: {
+      nodes: {
         create: [
           {
-            prompt: 'What is $\\log_{10}(100)$?',
-            options: {
+            id: 'seed-node-logarithm-quiz',
+            title: 'Logarithms Quiz',
+            order: 1,
+            type: RoadmapNodeType.QUIZ,
+            contentType: RoadmapContentType.TEXT,
+            content: '',
+            resourceUrl: '',
+            isPublished: true,
+            questions: {
               create: [
-                { text: '2', isCorrect: true },
-                { text: '10', isCorrect: false },
+                {
+                  prompt: 'What is $\\log_{10}(100)$?',
+                  options: {
+                    create: [
+                      { text: '2', isCorrect: true },
+                      { text: '10', isCorrect: false },
+                    ],
+                  },
+                },
               ],
             },
           },

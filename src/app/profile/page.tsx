@@ -320,7 +320,7 @@ export default function ProfilePage() {
                 className="w-full py-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-extrabold text-slate-700 hover:bg-slate-200 transition flex items-center justify-center gap-2 disabled:opacity-50"
               >
                 {isUploading ? <div className="w-5 h-5 border-2 border-slate-700 border-t-transparent rounded-full animate-spin"></div> : <Upload className="w-5 h-5" />}
-                {isUploading ? loadingText : t('Upload Custom Photo', 'Unggah Foto Sendiri')}
+                {isUploading ? loadingText : t('Upload Custom Photo', 'Unggah Foto')}
               </button>
             </div>
             <button onClick={() => setAvatarModalOpen(false)} className="w-full py-3 rounded-2xl font-extrabold text-xs text-slate-500 hover:text-slate-700 transition">
