@@ -8,17 +8,38 @@ import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { loadCurriculum, saveNodeProgress } from '@/src/lib/curriculumClient'
 import type { CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
+import { useAuth } from '@/src/context/AuthContext'
+import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
+import AppLoadingScreen from '@/src/components/shared/AppLoadingScreen'
 
 type QuizOption = {
   id: string
   text: string
-  isCorrect: boolean
 }
 
 type QuizQuestion = {
   id: string
   prompt: string
+  allowsMultipleAnswers?: boolean
   options: QuizOption[]
+}
+
+type CheckedAnswerResult = {
+  isCorrect: boolean
+  correctOptionIds: string[]
+  profile: AppProfile
+}
+
+function isCheckedAnswerResult(value: unknown): value is CheckedAnswerResult {
+  return typeof value === 'object'
+    && value !== null
+    && 'isCorrect' in value
+    && typeof value.isCorrect === 'boolean'
+    && 'correctOptionIds' in value
+    && Array.isArray(value.correctOptionIds)
+    && value.correctOptionIds.every((id) => typeof id === 'string')
+    && 'profile' in value
+    && isAppProfile(value.profile)
 }
 
 type LessonContent =
@@ -32,7 +53,9 @@ type NodeData =
 
 export default function NodeActivityPage() {
   const { t } = useLanguage()
-  const { hearts, unlimitedHearts } = useUser()
+  const { hearts, unlimitedHearts, setSuperMode } = useUser()
+  const { user, updateProfile } = useAuth()
+  const curriculumScope = user?.id ?? 'public'
   const router = useRouter()
   const params = useParams<{ id: string; nodeId: string }>()
   const { id: chapterId, nodeId } = params
@@ -44,7 +67,7 @@ export default function NodeActivityPage() {
 
   useEffect(() => {
     let active = true
-    void loadCurriculum()
+    void loadCurriculum(undefined, curriculumScope)
       .then((subjects) => {
         const node: CurriculumNode | undefined = subjects
           .flatMap((subject) => subject.chapters)
@@ -77,7 +100,7 @@ export default function NodeActivityPage() {
       })
       .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
-  }, [chapterId, nodeId])
+  }, [chapterId, curriculumScope, nodeId, t])
 
   useEffect(() => {
     if (!isExitDialogOpen) return
@@ -88,10 +111,11 @@ export default function NodeActivityPage() {
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [isExitDialogOpen])
 
-  const completeActivity = async (score?: number) => {
+  const completeActivity = async (attemptId?: string) => {
     setProgressError('')
     try {
-      await saveNodeProgress(nodeId, score)
+      const result = await saveNodeProgress(nodeId, attemptId)
+      updateProfile(result.profile)
       router.push(`/chapter/${chapterId}`)
     } catch (error) {
       console.error('Failed to save completed activity.', error)
@@ -107,11 +131,11 @@ export default function NodeActivityPage() {
     void completeActivity()
   }
 
-  if (isLoading) return <p role="status" className="p-8 text-center font-bold text-slate-500">{t('Loading activity…', 'Memuat aktivitas…')}</p>
+  if (isLoading) return <AppLoadingScreen message={t('Preparing your activity…', 'Menyiapkan aktivitasmu…')} />
   if (loadError || !nodeData) return <p role="alert" className="p-8 text-center font-bold text-rose-700">{loadError || t('This activity is unavailable.', 'Aktivitas ini tidak tersedia.')}</p>
 
   return (
-    <div className="mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7">
+    <div className="app-screen-pop mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7">
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           {nodeData.type === 'quiz' ? (
@@ -149,7 +173,16 @@ export default function NodeActivityPage() {
         {nodeData.type === 'lesson' ? (
           <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={() => { void completeActivity() }} />
         ) : (
-          <QuizActivity title={nodeData.title} questions={nodeData.questions} onComplete={(score) => { void completeActivity(score) }} />
+          <QuizActivity
+            nodeId={nodeId}
+            title={nodeData.title}
+            questions={nodeData.questions}
+            onComplete={(attemptId) => { void completeActivity(attemptId) }}
+            hearts={hearts}
+            superMode={unlimitedHearts}
+            setSuperMode={setSuperMode}
+            onProfileUpdate={updateProfile}
+          />
         )}
       </div>
 
@@ -279,36 +312,99 @@ function LessonActivity({ title, content, onComplete }: { title: string; content
 type QuizResponse = {
   selectedOptionIds: string[]
   checked: boolean
+  isCorrect?: boolean
 }
 
-function QuizActivity({ title, questions, onComplete }: { title: string; questions: QuizQuestion[]; onComplete: (score?: number) => void }) {
+function QuizActivity({
+  nodeId,
+  title,
+  questions,
+  onComplete,
+  hearts,
+  superMode,
+  setSuperMode,
+  onProfileUpdate,
+}: {
+  nodeId: string
+  title: string
+  questions: QuizQuestion[]
+  onComplete: (attemptId: string) => void
+  hearts: number
+  superMode: boolean
+  setSuperMode: (enabled: boolean) => Promise<boolean>
+  onProfileUpdate: (profile: import('@/src/lib/appProfile').AppProfile) => void
+}) {
   const { t } = useLanguage()
-  const { unlimitedHearts, setHearts } = useUser()
   const [currentIndex, setCurrentIndex] = useState(0)
   const [responses, setResponses] = useState<Record<number, QuizResponse>>({})
+  const [correctOptionIdsByQuestion, setCorrectOptionIdsByQuestion] = useState<Record<number, string[]>>({})
   const [isFinished, setIsFinished] = useState(false)
+  const [attemptId, setAttemptId] = useState('')
+  const [attemptError, setAttemptError] = useState('')
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false)
+  const [isActivatingSuperMode, setIsActivatingSuperMode] = useState(false)
+
+  const handleActivateSuperMode = async () => {
+    setIsActivatingSuperMode(true)
+    setAttemptError('')
+    const enabled = await setSuperMode(true)
+    if (!enabled) {
+      setAttemptError(t(
+        'Could not activate Super Mode. Please try again.',
+        'Tidak dapat mengaktifkan Mode Super. Silakan coba lagi.',
+      ))
+    }
+    setIsActivatingSuperMode(false)
+  }
+
+  useEffect(() => {
+    if (attemptId || isFinished) return
+    if (isActivatingSuperMode) return
+    if (hearts <= 0 && !superMode) {
+      setAttemptError(t('You are out of hearts. Refill your hearts or activate Super Mode to continue.', 'Kamu kehabisan hati. Isi ulang hati atau aktifkan Mode Super untuk melanjutkan.'))
+      return
+    }
+    let active = true
+    setAttemptError('')
+    void fetch('/api/quiz-attempt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nodeId }),
+    }).then(async (response) => {
+      const result: unknown = await response.json()
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : t('Could not start this quiz.', 'Tidak dapat memulai kuis ini.')
+        throw new Error(message)
+      }
+      if (typeof result !== 'object' || result === null || !('attemptId' in result) || typeof result.attemptId !== 'string') {
+        throw new Error(t('The server returned an invalid quiz attempt.', 'Server mengirim sesi kuis yang tidak valid.'))
+      }
+      if (active) setAttemptId(result.attemptId)
+    }).catch((error: unknown) => {
+      if (active) setAttemptError(error instanceof Error ? error.message : t('Could not start this quiz.', 'Tidak dapat memulai kuis ini.'))
+    })
+    return () => { active = false }
+  }, [attemptId, hearts, isActivatingSuperMode, isFinished, nodeId, superMode, t])
 
   const currentQuestion = questions[currentIndex]
   const currentResponse = responses[currentIndex]
   const isChecked = currentResponse?.checked ?? false
   const checkedCount = Object.values(responses).filter((response) => response.checked).length
   const progressPercent = Math.round((checkedCount / questions.length) * 100)
-  const correctOptionIds = currentQuestion.options.filter((option) => option.isCorrect).map((option) => option.id)
+  const correctOptionIds = correctOptionIdsByQuestion[currentIndex] ?? []
   const selectedOptionIds = currentResponse?.selectedOptionIds ?? []
   const isAnswerCorrect = selectedOptionIds.length === correctOptionIds.length
     && selectedOptionIds.every((optionId) => correctOptionIds.includes(optionId))
   const score = questions.reduce((total, question, index) => {
     const response = responses[index]
-    const correctIds = question.options.filter((option) => option.isCorrect).map((option) => option.id)
-    const selectedIds = response?.selectedOptionIds ?? []
-    const isCorrect = selectedIds.length === correctIds.length
-      && selectedIds.every((optionId) => correctIds.includes(optionId))
-    return total + (response?.checked && isCorrect ? 1 : 0)
+    return total + (response?.checked && response.isCorrect ? 1 : 0)
   }, 0)
 
   const selectAnswer = (optionId: string) => {
     if (isChecked) return
-    const supportsMultipleAnswers = currentQuestion.options.filter((option) => option.isCorrect).length > 1
+    const supportsMultipleAnswers = currentQuestion.allowsMultipleAnswers === true
     const selected = new Set(currentResponse?.selectedOptionIds ?? [])
     if (supportsMultipleAnswers && selected.has(optionId)) selected.delete(optionId)
     else if (supportsMultipleAnswers) selected.add(optionId)
@@ -322,17 +418,37 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
     }))
   }
 
-  const checkAnswer = () => {
-    if (!selectedOptionIds.length || isChecked) return
-    const answerIsCorrect = selectedOptionIds.length === correctOptionIds.length
-      && selectedOptionIds.every((optionId) => correctOptionIds.includes(optionId))
-    if (!answerIsCorrect && !unlimitedHearts) {
-      setHearts((currentHearts) => Math.max(0, currentHearts - 1))
+  const checkAnswer = async () => {
+    if (!selectedOptionIds.length || isChecked || isSubmittingAnswer || !attemptId) return
+    setAttemptError('')
+    setIsSubmittingAnswer(true)
+    try {
+      const response = await fetch('/api/quiz-attempt/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attemptId, questionId: currentQuestion.id, optionIds: selectedOptionIds }),
+      })
+      const result: unknown = await response.json()
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : t('Could not check this answer.', 'Tidak dapat memeriksa jawaban ini.')
+        throw new Error(message)
+      }
+      if (!isCheckedAnswerResult(result)) {
+        throw new Error(t('The server returned an invalid answer result.', 'Server mengirim hasil jawaban yang tidak valid.'))
+      }
+      onProfileUpdate(result.profile)
+      setCorrectOptionIdsByQuestion((previous) => ({ ...previous, [currentIndex]: result.correctOptionIds }))
+      setResponses((previous) => ({
+        ...previous,
+        [currentIndex]: { ...currentResponse, checked: true, isCorrect: result.isCorrect }
+      }))
+    } catch (error) {
+      setAttemptError(error instanceof Error ? error.message : t('Could not check this answer.', 'Tidak dapat memeriksa jawaban ini.'))
+    } finally {
+      setIsSubmittingAnswer(false)
     }
-    setResponses((previous) => ({
-      ...previous,
-      [currentIndex]: { ...currentResponse, checked: true }
-    }))
   }
 
   const continueQuiz = () => {
@@ -356,7 +472,7 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
         </p>
         <button
           type="button"
-          onClick={() => onComplete(Math.round((score / questions.length) * 100))}
+          onClick={() => onComplete(attemptId)}
           className="flex w-full items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-4 rounded-2xl border-b-4 border-indigo-800 transition-all active:border-b-0 active:translate-y-1"
         >
           {t('Finish', 'Selesai')}
@@ -367,6 +483,22 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
 
   return (
     <div className="w-full space-y-5">
+      {attemptError && (
+        <div role="alert" className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-800">
+          <p>{attemptError}</p>
+          {hearts <= 0 && !superMode && (
+            <button
+              type="button"
+              disabled={isActivatingSuperMode}
+              onClick={() => void handleActivateSuperMode()}
+              className="mt-3 rounded-xl bg-indigo-600 px-4 py-2 font-extrabold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {isActivatingSuperMode ? t('Activating…', 'Mengaktifkan…') : t('Activate Super Mode', 'Aktifkan Mode Super')}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="space-y-2 px-1">
         <div className="flex items-center justify-between text-sm font-extrabold text-slate-500">
           <span>{t('Question', 'Pertanyaan')} {currentIndex + 1} / {questions.length}</span>
@@ -390,6 +522,21 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
       </div>
 
       <div className="bg-white border-2 border-slate-100 rounded-3xl p-6 shadow-sm">
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white px-3 py-1.5 text-sm font-extrabold text-rose-500">
+            <Heart className="h-4 w-4 fill-rose-500" /> {superMode ? '∞' : hearts}
+          </span>
+          {!superMode && hearts <= 0 && (
+            <button
+              type="button"
+              disabled={isActivatingSuperMode}
+              onClick={() => void handleActivateSuperMode()}
+              className="rounded-xl bg-indigo-600 px-3 py-2 text-xs font-extrabold text-white disabled:opacity-60"
+            >
+              {isActivatingSuperMode ? t('Activating…', 'Mengaktifkan…') : t('Activate Super Mode', 'Aktifkan Mode Super')}
+            </button>
+          )}
+        </div>
         <h2 className="text-xl font-extrabold text-slate-700 mb-6">
           {currentQuestion.prompt}
         </h2>
@@ -404,7 +551,7 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
             const isSelected = selectedOptionIds.includes(option.id)
             let optionStyle = 'border-slate-200 hover:border-slate-300 bg-slate-50 text-slate-700'
 
-            if (isChecked && option.isCorrect) {
+            if (isChecked && correctOptionIds.includes(option.id)) {
               optionStyle = 'border-emerald-500 bg-emerald-50 text-emerald-700'
             } else if (isChecked && isSelected) {
               optionStyle = 'border-rose-500 bg-rose-50 text-rose-700'
@@ -425,8 +572,8 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
                   {index + 1}
                 </span>
                 <span className="flex-1">{option.text}</span>
-                {isChecked && option.isCorrect && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
-                {isChecked && isSelected && !option.isCorrect && <XCircle className="w-5 h-5 text-rose-600" />}
+                {isChecked && correctOptionIds.includes(option.id) && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
+                {isChecked && isSelected && !correctOptionIds.includes(option.id) && <XCircle className="w-5 h-5 text-rose-600" />}
               </button>
             )
           })}
@@ -445,7 +592,7 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
             ? currentQuestion.options.filter((option) => selectedOptionIds.includes(option.id)).map((option) => option.text)
             : [],
           correctAnswers: isChecked
-            ? currentQuestion.options.filter((option) => option.isCorrect).map((option) => option.text)
+            ? currentQuestion.options.filter((option) => correctOptionIds.includes(option.id)).map((option) => option.text)
             : [],
         }}
       />
@@ -465,7 +612,7 @@ function QuizActivity({ title, questions, onComplete }: { title: string; questio
           </div>
           {!isAnswerCorrect && (
             <p className="mt-1 ml-7 text-sm font-semibold">
-              {t('Correct answers:', 'Jawaban yang benar:')} {currentQuestion.options.filter((option) => option.isCorrect).map((option) => option.text).join(', ')}
+              {t('Correct answers:', 'Jawaban yang benar:')} {currentQuestion.options.filter((option) => correctOptionIds.includes(option.id)).map((option) => option.text).join(', ')}
             </p>
           )}
         </div>

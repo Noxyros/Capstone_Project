@@ -5,6 +5,7 @@ import { LanguageProvider } from '@/src/context/LanguageContext'
 import { ThemeProvider } from '@/src/context/ThemeContext'
 import { UserProvider } from '@/src/context/UserContext'
 import { AuthProvider } from '@/src/context/AuthContext'
+import Script from 'next/script'
 
 const nunito = Nunito({
   subsets: ['latin'],
@@ -19,7 +20,12 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <Script id="theme-init" strategy="beforeInteractive">
+          {`document.documentElement.classList.add('theme-initializing'); const savedTheme = localStorage.getItem('questly_theme'); const darkTheme = savedTheme === 'dark' || (savedTheme !== 'light' && window.matchMedia('(prefers-color-scheme: dark)').matches); document.documentElement.classList.toggle('dark', darkTheme); document.documentElement.style.colorScheme = darkTheme ? 'dark' : 'light';`}
+        </Script>
+      </head>
       <body className={`${nunito.className} bg-slate-50 text-slate-700 min-h-screen antialiased`}>
         <LanguageProvider>
           <ThemeProvider>

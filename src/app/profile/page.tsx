@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useRef } from 'react'
+import React, { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import {
   Flame, Heart, Zap, Trophy, Medal, User, Sparkles,
@@ -8,32 +8,17 @@ import {
   Settings
 } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
-
-const PRESET_AVATARS = [
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Questly1',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Questly2',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Questly3',
-  'https://api.dicebear.com/7.x/bottts/svg?seed=Questly4',
-]
+import { useAuth } from '@/src/context/AuthContext'
+import { isAppProfile } from '@/src/lib/appProfile'
+import { PRESET_AVATARS } from '@/src/lib/profileAvatars'
 
 export default function ProfilePage() {
   const { t } = useLanguage()
+  const { profile, state: authState, error: authError, updateProfile } = useAuth()
 
-  const user = {
-    streakDays: 12,
-    totalXp: 450,
-    rank: 2,
-    hearts: 5,
-    maxHearts: 5,
-  }
-
-  const originalName = 'Alex Developer'
-  const originalHandle = 'alex_dev'
-  const originalAvatarUrl = 'https://ui-avatars.com/api/?name=Alex+Developer&background=e0e7ff&color=4f46e5&size=150&font-weight=bold'
-
-  const [name, setName] = useState(originalName)
-  const [handle, setHandle] = useState(originalHandle)
-  const [avatarUrl, setAvatarUrl] = useState<string | null>(originalAvatarUrl)
+  const [name, setName] = useState(() => profile?.name ?? '')
+  const [handle, setHandle] = useState(() => profile?.handle ?? '')
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(() => profile?.avatarUrl ?? null)
 
   const [isUploading, setIsUploading] = useState(false)
   const [loadingText, setLoadingText] = useState('')
@@ -43,6 +28,13 @@ export default function ProfilePage() {
 
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
 
+  useEffect(() => {
+    if (!profile) return
+    setName(profile.name ?? '')
+    setHandle(profile.handle ?? '')
+    setAvatarUrl(profile.avatarUrl)
+  }, [profile?.id, profile?.name, profile?.handle, profile?.avatarUrl])
+
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setToast({ visible: true, message, type })
     setTimeout(() => {
@@ -50,15 +42,47 @@ export default function ProfilePage() {
     }, 3500)
   }
 
-  const getInitials = (name: string) => name.substring(0, 2).toUpperCase() || '??'
+  const getInitials = (value: string) => value.trim().substring(0, 2).toUpperCase() || '??'
+  const displayName = name || handle || profile?.email.split('@')[0] || ''
+  const joinedDate = profile
+    ? new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(new Date(profile.createdAt))
+    : ''
 
-  const hasChanges = name !== originalName || handle !== originalHandle || avatarUrl !== originalAvatarUrl
+  const hasChanges = Boolean(profile && (
+    name !== (profile.name ?? '')
+    || handle !== (profile.handle ?? '')
+    || avatarUrl !== profile.avatarUrl
+  ))
 
   const handleSaveChanges = async () => {
+    if (!profile) return
     setIsSaving(true)
-    await new Promise(resolve => setTimeout(resolve, 800))
-    setIsSaving(false)
-    showToast(t('Profile updated successfully!', 'Profil berhasil diperbarui!'), 'success')
+    try {
+      const response = await fetch('/api/auth/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, handle, avatarUrl }),
+      })
+      const result: unknown = await response.json()
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : t('Could not save your profile.', 'Tidak dapat menyimpan profil.')
+        throw new Error(message)
+      }
+      if (!isAppProfile(result)) {
+        throw new Error(t('The server returned invalid profile data.', 'Server mengirim data profil yang tidak valid.'))
+      }
+      updateProfile(result)
+      setName(result.name ?? '')
+      setHandle(result.handle ?? '')
+      setAvatarUrl(result.avatarUrl)
+      showToast(t('Profile updated successfully!', 'Profil berhasil diperbarui!'), 'success')
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : t('Could not save your profile.', 'Tidak dapat menyimpan profil.'), 'error')
+    } finally {
+      setIsSaving(false)
+    }
   }
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,7 +119,7 @@ export default function ProfilePage() {
 
       setAvatarUrl(data.url)
       setAvatarModalOpen(false)
-      showToast(t('Avatar updated securely!', 'Avatar berhasil diperbarui!'), 'success')
+      showToast(t('Avatar selected. Save changes to keep it.', 'Avatar dipilih. Simpan perubahan untuk menyimpannya.'), 'success')
 
     } catch (error) {
       showToast(t('Error connecting to server. Please try again.', 'Gagal terhubung ke server. Coba lagi.'), 'error')
@@ -122,7 +146,7 @@ export default function ProfilePage() {
         <div className="shrink-0 relative group cursor-pointer" onClick={() => setAvatarModalOpen(true)}>
           <div className="absolute inset-0 bg-indigo-500 rounded-full blur-lg opacity-20 transform translate-y-2"></div>
           <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full border-[6px] border-white shadow-[0_0_0_2px_theme(colors.slate.100)] bg-indigo-50 text-indigo-600 flex items-center justify-center text-4xl font-black overflow-hidden">
-            {avatarUrl ? <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" /> : getInitials(name)}
+            {avatarUrl ? <img src={avatarUrl} alt={t('Profile avatar', 'Avatar profil')} className="w-full h-full object-cover" /> : getInitials(displayName)}
           </div>
           <div className="absolute bottom-0 right-0 bg-slate-800 text-white p-2.5 rounded-full border-2 border-white group-hover:bg-indigo-600 shadow-md transition-colors z-10">
             <Pencil className="w-4 h-4" />
@@ -139,7 +163,11 @@ export default function ProfilePage() {
               <input
                 type="text"
                 value={name}
+                required
+                maxLength={80}
+                disabled={!profile}
                 onChange={(e) => setName(e.target.value)}
+                placeholder={t('Your name', 'Namamu')}
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-indigo-400 focus:bg-white outline-none transition-all"
               />
             </div>
@@ -154,18 +182,30 @@ export default function ProfilePage() {
               <input
                 type="text"
                 value={handle}
-                onChange={(e) => setHandle(e.target.value)}
+                required
+                minLength={3}
+                maxLength={24}
+                pattern="[A-Za-z0-9_]{3,24}"
+                disabled={!profile}
+                onChange={(e) => setHandle(e.target.value.toLowerCase())}
                 className="w-full pl-10 pr-4 py-3 bg-slate-50 border-2 border-slate-200 rounded-2xl font-bold text-slate-700 focus:border-indigo-400 focus:bg-white outline-none transition-all lowercase"
               />
             </div>
           </div>
 
+          {authState === 'profile_error' && authError && (
+            <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700">
+              {authError}
+            </p>
+          )}
+
           <div className="pt-2 flex flex-col sm:flex-row justify-between items-center sm:items-center gap-4">
             <span className="text-xs font-extrabold text-indigo-600 bg-indigo-50 border-2 border-indigo-100 px-4 py-2 rounded-xl uppercase tracking-wider inline-block">
-              {t('Joined March 2026', 'Bergabung Maret 2026')}
+              {profile ? t(`Joined ${joinedDate}`, `Bergabung ${joinedDate}`) : t('Loading profile…', 'Memuat profil…')}
             </span>
             <button
-              onClick={handleSaveChanges}
+              type="button"
+              onClick={() => void handleSaveChanges()}
               disabled={!hasChanges || isSaving}
               className={`px-6 py-3 rounded-2xl font-extrabold text-sm transition-all w-full sm:w-auto ${hasChanges && !isSaving ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:-translate-y-0.5' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
             >
@@ -185,7 +225,7 @@ export default function ProfilePage() {
               <Flame className="w-6 h-6 text-orange-500 fill-orange-500" />
             </div>
             <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{user.streakDays}</h3>
+              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile?.streak ?? '—'}</h3>
               <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Day streak', 'Hari streak')}</p>
             </div>
           </div>
@@ -195,7 +235,7 @@ export default function ProfilePage() {
               <Zap className="w-6 h-6 text-sky-500 fill-sky-500" />
             </div>
             <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{user.totalXp}</h3>
+              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile?.totalXp ?? '—'}</h3>
               <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Total XP', 'Total XP')}</p>
             </div>
           </div>
@@ -206,7 +246,7 @@ export default function ProfilePage() {
             </div>
             <div className="min-w-0">
               <h3 className="text-2xl font-extrabold text-slate-700 leading-none truncate">
-                #{user.rank}
+                {profile ? `#${profile.rank}` : '—'}
               </h3>
               <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide truncate">{t('Current rank', 'Peringkat saat ini')}</p>
             </div>
@@ -217,7 +257,7 @@ export default function ProfilePage() {
               <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
             </div>
             <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{user.hearts}</h3>
+              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile ? `${profile.hearts}/${profile.maxHearts}` : '—'}</h3>
               <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Hearts left', 'Nyawa tersisa')}</p>
             </div>
           </div>
@@ -299,7 +339,7 @@ export default function ProfilePage() {
                   onClick={() => {
                     setAvatarUrl(url)
                     setAvatarModalOpen(false)
-                    showToast(t('Avatar updated!', 'Avatar diperbarui!'), 'success')
+                    showToast(t('Avatar selected. Save changes to keep it.', 'Avatar dipilih. Simpan perubahan untuk menyimpannya.'), 'success')
                   }}
                   className="aspect-square bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-indigo-400 hover:bg-indigo-50 transition p-2"
                 >

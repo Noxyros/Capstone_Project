@@ -13,6 +13,7 @@ interface DailyQuizProps {
   options?: { id: string; text: string; isCorrect: boolean }[]
   alreadyAttempted?: boolean
   xpReward?: number
+  previewOnly?: boolean
 }
 
 export default function DailyQuizWidget({
@@ -21,6 +22,7 @@ export default function DailyQuizWidget({
   options,
   alreadyAttempted = false,
   xpReward = 50,
+  previewOnly = false,
 }: DailyQuizProps) {
   const { t } = useLanguage()
   const displayOptions = options ?? [
@@ -57,7 +59,9 @@ export default function DailyQuizWidget({
               <span className="text-xs font-extrabold uppercase bg-white/20 px-2 py-0.5 rounded-full text-yellow-100">
                 {t('1-a-day Challenge', 'Tantangan Harian')}
               </span>
-              <span className="text-xs font-bold text-yellow-200">+{xpReward} XP</span>
+              <span className="text-xs font-bold text-yellow-100">
+                {previewOnly ? t('Preview · no XP yet', 'Pratinjau · belum ada XP') : `+${xpReward} XP`}
+              </span>
             </div>
             <h3 className="text-lg font-extrabold leading-snug tracking-wide">{displayTitle}</h3>
           </div>
@@ -135,7 +139,9 @@ export default function DailyQuizWidget({
                   >
                     <CheckCircle2 className="w-5 h-5" />
                     {isCorrect
-                      ? t(`Correct! You earned +${xpReward} XP!`, `Benar! Kamu mendapatkan +${xpReward} XP!`)
+                      ? previewOnly
+                        ? t('Correct! This preview does not award XP yet.', 'Benar! Pratinjau ini belum memberikan XP.')
+                        : t(`Correct! You earned +${xpReward} XP!`, `Benar! Kamu mendapatkan +${xpReward} XP!`)
                       : t('Not quite! Better luck on tomorrow’s challenge.', 'Kurang tepat! Coba lagi di tantangan besok.')}
                   </div>
                   <button

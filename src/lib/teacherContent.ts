@@ -1,12 +1,13 @@
 export type CurriculumOption = {
   id: string
   text: string
-  isCorrect: boolean
+  isCorrect?: boolean
 }
 
 export type CurriculumQuestion = {
   id: string
   prompt: string
+  allowsMultipleAnswers?: boolean
   options: CurriculumOption[]
 }
 

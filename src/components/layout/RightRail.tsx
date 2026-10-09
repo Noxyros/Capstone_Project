@@ -8,20 +8,29 @@ import { useUser } from '@/src/context/UserContext'
 
 export default function RightRail() {
   const { t } = useLanguage()
-  const { gems, hearts, streak, freezesEquipped, buyItem, setHearts } = useUser()
+  const {
+    gems,
+    hearts,
+    maxHearts,
+    streak,
+    freezesEquipped,
+    doubleXpUntil,
+    isMutating,
+    isSuperModePending,
+    unlimitedHearts,
+    gameError,
+    buyPowerUp,
+  } = useUser()
 
-  const [xpBoostActive, setXpBoostActive] = useState(false)
-  const [xpBoostSecondsLeft, setXpBoostSecondsLeft] = useState(15 * 60)
+  const [now, setNow] = useState(() => Date.now())
+  const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
+  const xpBoostActive = xpBoostSecondsLeft > 0
 
   useEffect(() => {
-    let interval: NodeJS.Timeout
-    if (xpBoostActive && xpBoostSecondsLeft > 0) {
-      interval = setInterval(() => setXpBoostSecondsLeft((prev) => prev - 1), 1000)
-    } else if (xpBoostSecondsLeft === 0) {
-      setXpBoostActive(false)
-    }
-    return () => clearInterval(interval)
-  }, [xpBoostActive, xpBoostSecondsLeft])
+    if (!xpBoostActive) return
+    const interval = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(interval)
+  }, [xpBoostActive])
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -29,16 +38,13 @@ export default function RightRail() {
     return `${mins}:${secs < 10 ? '0' : ''}${secs}`
   }
 
-  // Heart refill is now 250
-  const handleBuyHearts = () => buyItem(250, () => setHearts(5)) 
-  const handleBuyFreeze = () => buyItem(200, () => alert(t('Streak freeze purchased!', 'Pembeku streak berhasil dibeli!')))
-  const handleBuyXpBoost = () => buyItem(100, () => {
-    setXpBoostActive(true)
-    setXpBoostSecondsLeft(15 * 60)
-  })
+  const handleBuyHearts = () => void buyPowerUp('HEART_REFILL')
+  const handleBuyFreeze = () => void buyPowerUp('STREAK_FREEZE')
+  const handleBuyXpBoost = () => void buyPowerUp('DOUBLE_XP')
 
   return (
     <div className="space-y-4">
+      {gameError && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">{gameError}</p>}
       {/* Leaderboard Card */}
       <div className="bg-white border-2 border-slate-200 rounded-2xl p-4">
         <div className="flex items-center justify-between mb-2">
@@ -55,10 +61,7 @@ export default function RightRail() {
             <Trophy className="w-5 h-5 text-amber-500" />
           </div>
           <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-            {t(
-              'Finish one lesson to join this week’s board and see classmates.',
-              'Selesaikan satu pelajaran untuk bergabung di papan minggu ini dan melihat teman sekelas.'
-            )}
+            {t('Earn XP to join the board.', 'Raih XP untuk masuk papan peringkat.')}
           </p>
         </div>
       </div>
@@ -78,7 +81,7 @@ export default function RightRail() {
 
         <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
           <Snowflake className={`w-4 h-4 ${freezesEquipped > 0 ? 'text-sky-400 fill-sky-400/20' : 'text-slate-300'}`} />
-          {freezesEquipped > 0 ? t('Streak Freeze active', 'Pembeku Streak aktif') : t('No Streak Freeze active', 'Tidak ada Pembeku aktif')}
+          {freezesEquipped > 0 ? t('Streak Freeze ready', 'Pembeku Streak tersedia') : t('No Streak Freeze held', 'Tidak memiliki Pembeku Streak')}
         </div>
       </div>
 
@@ -90,12 +93,12 @@ export default function RightRail() {
           {/* Heart Refill (250 Gems) */}
           <button
             onClick={handleBuyHearts}
-            disabled={gems < 250 || hearts >= 5}
+            disabled={isMutating || isSuperModePending || unlimitedHearts || gems < 250 || hearts >= maxHearts}
             className="w-full flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 border-2 border-transparent hover:border-slate-200 transition-all group disabled:opacity-50 disabled:hover:border-transparent disabled:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
           >
             <span className="flex items-center gap-2.5 text-xs font-black text-slate-700">
               <Heart className="w-4 h-4 fill-rose-500 text-rose-500" />
-              {hearts >= 5 ? t('Hearts Full', 'Hati Penuh') : t('Heart refill', 'Isi ulang hati')}
+              {hearts >= maxHearts ? t('Hearts Full', 'Hati Penuh') : t('Heart refill', 'Isi ulang hati')}
             </span>
             <span className="flex items-center gap-1 text-xs font-black text-sky-500">
               250 <Gem className="w-3.5 h-3.5 fill-sky-400" />
@@ -105,7 +108,7 @@ export default function RightRail() {
           {/* 2x XP Boost (100 Gems) */}
           <button
             onClick={handleBuyXpBoost}
-            disabled={gems < 100 || xpBoostActive}
+            disabled={isMutating || gems < 100 || xpBoostActive}
             className="w-full flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 border-2 border-transparent hover:border-slate-200 transition-all group disabled:opacity-50 disabled:hover:border-transparent disabled:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
           >
             <div className="flex items-center gap-2.5 text-left">
@@ -123,7 +126,7 @@ export default function RightRail() {
           {/* Streak Freeze (200 Gems) */}
           <button
             onClick={handleBuyFreeze}
-            disabled={gems < 200 || freezesEquipped >= 2}
+            disabled={isMutating || gems < 200 || freezesEquipped >= 2}
             className="w-full flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 border-2 border-transparent hover:border-slate-200 transition-all group disabled:opacity-50 disabled:hover:border-transparent disabled:bg-slate-50 cursor-pointer disabled:cursor-not-allowed"
           >
             <div className="flex flex-col items-start">

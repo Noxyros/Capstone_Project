@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { Compass, Dumbbell, Trophy, User, Ellipsis, Settings, CircleHelp, LogOut, GraduationCap } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
+import LogoutConfirmDialog from '@/src/components/shared/LogoutConfirmDialog'
 
 export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const { t } = useLanguage()
@@ -14,7 +15,6 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
   const router = useRouter()
   const [moreOpen, setMoreOpen] = useState(false)
   const [logoutOpen, setLogoutOpen] = useState(false)
-  const [logoutError, setLogoutError] = useState('')
   const moreRef = useRef<HTMLDivElement>(null)
 
   const navItems = [
@@ -125,42 +125,15 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
         </nav>
       </div>
 
-      {logoutOpen && (
-        <div className="fixed inset-0 z-80 bg-slate-900/40 flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border-2 border-slate-100">
-            <h2 className="text-lg font-extrabold text-slate-700">{t('Log out?', 'Keluar?')}</h2>
-            <p className="text-sm font-semibold text-slate-500 mt-2 leading-relaxed">
-              {t('You will be signed out of this account on this device.', 'Kamu akan keluar dari akun ini di perangkat ini.')}
-            </p>
-            {logoutError && <p role="alert" className="mt-3 text-sm font-bold text-rose-600">{logoutError}</p>}
-            <div className="flex gap-2 mt-5">
-              <button
-                type="button"
-                onClick={() => setLogoutOpen(false)}
-                className="flex-1 py-2.5 rounded-2xl font-extrabold text-slate-600 bg-slate-100"
-              >
-                {t('Stay', 'Batal')}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void signOut()
-                    .then(() => {
-                      setLogoutOpen(false)
-                      router.replace('/login')
-                    })
-                    .catch((error: unknown) => {
-                      setLogoutError(error instanceof Error ? error.message : t('Could not sign out. Please try again.', 'Gagal keluar. Silakan coba lagi.'))
-                    })
-                }}
-                className="flex-1 py-2.5 rounded-2xl font-extrabold text-white bg-rose-500"
-              >
-                {t('Log out', 'Keluar')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <LogoutConfirmDialog
+        open={logoutOpen}
+        t={t}
+        onClose={() => setLogoutOpen(false)}
+        onConfirm={async () => {
+          await signOut()
+          router.replace('/login')
+        }}
+      />
     </div>
   )
 }

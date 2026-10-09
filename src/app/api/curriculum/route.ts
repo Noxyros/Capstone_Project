@@ -49,10 +49,11 @@ function toCurriculumSubject(
         questions: node.questions.map((question) => ({
           id: question.id,
           prompt: question.prompt,
+          allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
           options: question.options.map((option) => ({
             id: option.id,
             text: option.text,
-            isCorrect: option.isCorrect,
+            ...(teacherView ? { isCorrect: option.isCorrect } : {}),
           })),
         })),
       }))

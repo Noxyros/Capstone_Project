@@ -8,6 +8,7 @@ interface DailyQuestCardProps {
   xpReward: number
   current: number
   target: number
+  previewOnly?: boolean
 }
 
 export default function DailyQuestCard({
@@ -16,9 +17,10 @@ export default function DailyQuestCard({
   xpReward,
   current,
   target,
+  previewOnly = false,
 }: DailyQuestCardProps) {
   const { t } = useLanguage()
-  const completed = current >= target
+  const completed = !previewOnly && current >= target
   const progress = Math.min(100, Math.round((current / target) * 100))
 
   return (
@@ -44,25 +46,33 @@ export default function DailyQuestCard({
               : 'bg-amber-100 text-amber-600'
           }`}
         >
-          {completed ? t('Done', 'Selesai') : `+${xpReward} XP`}
+          {previewOnly
+            ? t('Preview', 'Pratinjau')
+            : completed ? t('Done', 'Selesai') : `+${xpReward} XP`}
         </div>
       </div>
 
-      <div className="mt-3 flex items-center gap-2">
-        <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
-          <div
-            className={`h-full rounded-full ${completed ? 'bg-emerald-400' : 'bg-indigo-400'}`}
-            style={{ width: `${progress}%` }}
-          />
+      {previewOnly ? (
+        <p className="mt-3 text-xs font-semibold text-slate-400">
+          {t('Progress and rewards are not saved yet.', 'Progres dan hadiah belum disimpan.')}
+        </p>
+      ) : (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="flex-1 h-2.5 rounded-full bg-slate-100 overflow-hidden">
+            <div
+              className={`h-full rounded-full ${completed ? 'bg-emerald-400' : 'bg-indigo-400'}`}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span
+            className={`text-[11px] font-bold tabular-nums ${
+              completed ? 'text-emerald-600' : 'text-slate-400'
+            }`}
+          >
+            {Math.min(current, target)}/{target}
+          </span>
         </div>
-        <span
-          className={`text-[11px] font-bold tabular-nums ${
-            completed ? 'text-emerald-600' : 'text-slate-400'
-          }`}
-        >
-          {Math.min(current, target)}/{target}
-        </span>
-      </div>
+      )}
     </div>
   )
 }

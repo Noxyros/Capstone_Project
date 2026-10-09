@@ -1,30 +1,71 @@
 'use client'
 
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/client'
+import { isAppProfile, type AppProfile, type AppRole } from '@/src/lib/appProfile'
+import { invalidateCurriculumCache } from '@/src/lib/curriculumClient'
+import { invalidateLeaderboardCache } from '@/src/lib/leaderboardClient'
 
-type AppRole = 'STUDENT' | 'TEACHER' | 'ADMIN'
 type AuthState = 'loading' | 'signed_out' | 'signed_in' | 'configuration_error' | 'profile_error'
 
 interface AuthContextValue {
   user: SupabaseUser | null
+  profile: AppProfile | null
   role: AppRole | null
   state: AuthState
   error: string
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
+  updateProfile: (profile: AppProfile, options?: { invalidateLeaderboard?: boolean }) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
+const PROFILE_CACHE_PREFIX = 'questly_profile:'
+
+function readCachedProfile(authUserId: string): AppProfile | null {
+  try {
+    const cached = sessionStorage.getItem(`${PROFILE_CACHE_PREFIX}${authUserId}`)
+    if (!cached) return null
+    const value: unknown = JSON.parse(cached)
+    if (
+      typeof value !== 'object'
+      || value === null
+      || !('profile' in value)
+      || !isAppProfile(value.profile)
+      || !('expiresAt' in value)
+      || typeof value.expiresAt !== 'number'
+      || value.expiresAt <= Date.now()
+    ) {
+      sessionStorage.removeItem(`${PROFILE_CACHE_PREFIX}${authUserId}`)
+      return null
+    }
+    return value.profile
+  } catch (error) {
+    console.warn('Could not restore the cached learner profile.', error)
+    return null
+  }
+}
+
+function writeCachedProfile(authUserId: string, profile: AppProfile): void {
+  try {
+    sessionStorage.setItem(`${PROFILE_CACHE_PREFIX}${authUserId}`, JSON.stringify({
+      profile,
+      expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    }))
+  } catch (error) {
+    console.warn('Could not cache the learner profile for this browser tab.', error)
+  }
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<SupabaseUser | null>(null)
+  const [profile, setProfile] = useState<AppProfile | null>(null)
   const [role, setRole] = useState<AppRole | null>(null)
   const [state, setState] = useState<AuthState>('loading')
   const [error, setError] = useState('')
 
-  const loadProfile = useCallback(async () => {
+  const loadProfile = useCallback(async (authUserId: string) => {
     const response = await fetch('/api/auth/profile', { cache: 'no-store' })
     const result: unknown = await response.json()
     if (!response.ok) {
@@ -33,38 +74,67 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         : 'Could not load your account profile.'
       throw new Error(message)
     }
-    if (
-      typeof result !== 'object'
-      || result === null
-      || !('role' in result)
-      || (result.role !== 'STUDENT' && result.role !== 'TEACHER' && result.role !== 'ADMIN')
-    ) {
+    if (!isAppProfile(result)) {
       throw new Error('The server returned an invalid account profile.')
     }
 
+    setProfile(result)
     setRole(result.role)
     setState('signed_in')
     setError('')
+    writeCachedProfile(authUserId, result)
   }, [])
 
-  const syncSession = useCallback(async (nextUser: SupabaseUser | null) => {
+  const syncSession = useCallback(async (nextUser: SupabaseUser | null, forceProfileReload = false) => {
+    const changedUser = user?.id !== nextUser?.id
+    if (changedUser && user?.id) {
+      invalidateCurriculumCache(user.id)
+      invalidateLeaderboardCache(user.id)
+    }
     setUser(nextUser)
-    setRole(null)
     if (!nextUser) {
+      setProfile(null)
+      setRole(null)
       setState('signed_out')
       setError('')
       return
     }
 
-    setState('loading')
+    if (!forceProfileReload && user?.id === nextUser.id && profile) {
+      setState('signed_in')
+      return
+    }
+
+    let hasCachedProfile = false
+    if (changedUser && !forceProfileReload) {
+      const cachedProfile = readCachedProfile(nextUser.id)
+      if (cachedProfile) {
+        setProfile(cachedProfile)
+        setRole(cachedProfile.role)
+        setState('signed_in')
+        setError('')
+        hasCachedProfile = true
+      }
+    }
+
+    if (changedUser && !hasCachedProfile) {
+      setProfile(null)
+      setRole(null)
+    }
+    if (!hasCachedProfile) setState('loading')
     try {
-      await loadProfile()
+      await loadProfile(nextUser.id)
     } catch (profileError) {
       console.error('Failed to synchronize the signed-in account profile.', profileError)
-      setState('profile_error')
-      setError(profileError instanceof Error ? profileError.message : 'Could not load your account profile.')
+      if (!hasCachedProfile) {
+        setState('profile_error')
+        setError(profileError instanceof Error ? profileError.message : 'Could not load your account profile.')
+      }
     }
-  }, [loadProfile])
+  }, [loadProfile, profile, user])
+
+  const syncSessionRef = useRef(syncSession)
+  syncSessionRef.current = syncSession
 
   useEffect(() => {
     if (!isSupabaseBrowserConfigured()) {
@@ -75,8 +145,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const supabase = createClient()
     let active = true
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (active) void syncSession(session?.user ?? null)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (active && event !== 'INITIAL_SESSION' && event !== 'TOKEN_REFRESHED') {
+        void syncSessionRef.current(session?.user ?? null, event === 'USER_UPDATED')
+      }
     })
 
     void supabase.auth.getSession().then(({ data, error: sessionError }) => {
@@ -87,14 +159,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setError('Could not restore your session. Please sign in again.')
         return
       }
-      void syncSession(data.session?.user ?? null)
+      void syncSessionRef.current(data.session?.user ?? null)
     })
 
     return () => {
       active = false
       subscription.unsubscribe()
     }
-  }, [syncSession])
+  }, [])
 
   const signOut = useCallback(async () => {
     if (!isSupabaseBrowserConfigured()) {
@@ -107,16 +179,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Could not sign out. Please try again.')
     }
     setUser(null)
+    if (user) {
+      invalidateCurriculumCache(user.id)
+      invalidateLeaderboardCache(user.id)
+    }
+    if (user) {
+      try {
+        sessionStorage.removeItem(`${PROFILE_CACHE_PREFIX}${user.id}`)
+      } catch (error) {
+        console.warn('Could not clear the cached learner profile for this browser tab.', error)
+      }
+    }
+    setProfile(null)
     setRole(null)
     setState('signed_out')
     setError('')
-  }, [])
+  }, [user])
 
   const refreshProfile = useCallback(async () => {
     if (!user) return
     setState('loading')
     try {
-      await loadProfile()
+      await loadProfile(user.id)
     } catch (profileError) {
       console.error('Failed to refresh the signed-in account profile.', profileError)
       setState('profile_error')
@@ -124,8 +208,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [loadProfile, user])
 
+  const updateProfile = useCallback((
+    nextProfile: AppProfile,
+    { invalidateLeaderboard = true }: { invalidateLeaderboard?: boolean } = {},
+  ) => {
+    setProfile(nextProfile)
+    setRole(nextProfile.role)
+    setState('signed_in')
+    setError('')
+    if (user) {
+      writeCachedProfile(user.id, nextProfile)
+      if (invalidateLeaderboard) invalidateLeaderboardCache(user.id)
+    }
+  }, [user])
+
   return (
-    <AuthContext.Provider value={{ user, role, state, error, signOut, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, role, state, error, signOut, refreshProfile, updateProfile }}>
       {children}
     </AuthContext.Provider>
   )

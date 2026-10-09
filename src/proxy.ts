@@ -5,6 +5,8 @@ export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
   const isAuthRoute = pathname === '/login' || pathname.startsWith('/auth/')
   const isApiRoute = pathname.startsWith('/api/')
+  const isPublicAuthApi = pathname === '/api/auth/username-login'
+    || pathname === '/api/auth/username-availability'
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
   if (!url || !key) {
@@ -47,6 +49,7 @@ export async function proxy(request: NextRequest) {
   }
 
   if (isAuthRoute) return response
+  if (isPublicAuthApi) return response
 
   if (!isAuthenticated) {
     if (isApiRoute) {

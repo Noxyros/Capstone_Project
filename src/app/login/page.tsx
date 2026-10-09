@@ -10,6 +10,39 @@ import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/cl
 type FormMode = 'sign_in' | 'sign_up'
 type AuthLanguage = 'en' | 'id'
 
+function getAuthErrorMessage(
+  error: { code?: string; message: string },
+  mode: FormMode,
+  t: (english: string, indonesian: string) => string,
+): string {
+  if (error.code === 'email_address_invalid') {
+    return t(
+      'Supabase rejected this email address. Check the address and your project’s Authentication email settings.',
+      'Supabase menolak alamat email ini. Periksa alamat dan pengaturan email Authentication di project.'
+    )
+  }
+
+  if (
+    error.code === 'over_email_send_rate_limit'
+    || error.code === 'email_rate_limit_exceeded'
+    || error.message.toLowerCase().includes('rate limit')
+  ) {
+    return t(
+      'Supabase has temporarily limited authentication emails or attempts for this project. Stop retrying for now, wait for its limit to reset, or configure custom SMTP in Supabase Auth.',
+      'Supabase membatasi sementara email atau percobaan autentikasi untuk project ini. Hentikan percobaan dulu, tunggu hingga batas direset, atau atur SMTP khusus di Supabase Auth.'
+    )
+  }
+
+  if (mode === 'sign_in' && error.code === 'invalid_credentials') {
+    return t(
+      'Email or password is incorrect. If you have not created a Supabase Auth account yet, choose Sign up first.',
+      'Email atau kata sandi salah. Jika belum memiliki akun Supabase Auth, pilih Daftar terlebih dahulu.'
+    )
+  }
+
+  return error.message
+}
+
 export default function LoginPage() {
   const { state: authState, error: authError } = useAuth()
   const { language: appLanguage } = useLanguage()
@@ -17,6 +50,7 @@ export default function LoginPage() {
   const [language, setLanguage] = useState<AuthLanguage>('en')
   const [mode, setMode] = useState<FormMode>('sign_in')
   const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -62,14 +96,57 @@ export default function LoginPage() {
       const supabase = createClient()
       const nextPath = getNextPath()
       if (mode === 'sign_up') {
+        const normalizedUsername = username.trim().toLowerCase()
+        if (!/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
+          setError(t(
+            'Choose a username with 3–24 characters: lowercase letters, numbers, and underscores.',
+            'Pilih nama pengguna 3–24 karakter: huruf kecil, angka, dan garis bawah.'
+          ))
+          return
+        }
+
+        const availabilityResponse = await fetch('/api/auth/username-availability', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: normalizedUsername }),
+        })
+        const availability: unknown = await availabilityResponse.json()
+        if (!availabilityResponse.ok) {
+          const message = typeof availability === 'object'
+            && availability !== null
+            && 'error' in availability
+            && typeof availability.error === 'string'
+            ? availability.error
+            : t('Could not check username availability.', 'Tidak dapat memeriksa ketersediaan nama pengguna.')
+          setError(message)
+          return
+        }
+        if (
+          typeof availability !== 'object'
+          || availability === null
+          || !('available' in availability)
+          || typeof availability.available !== 'boolean'
+        ) {
+          setError(t('The server returned an invalid username check.', 'Server mengirim pemeriksaan nama pengguna yang tidak valid.'))
+          return
+        }
+        if (!availability.available) {
+          setError(t('That username is already taken. Please choose another.', 'Nama pengguna itu sudah dipakai. Silakan pilih yang lain.'))
+          return
+        }
+
         const { data, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
+          email: email.trim().toLowerCase(),
           password,
           options: {
             emailRedirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(nextPath)}`,
+            data: { handle: normalizedUsername },
           },
         })
-        if (signUpError) throw signUpError
+        if (signUpError) {
+          setError(getAuthErrorMessage(signUpError, mode, t))
+          return
+        }
         if (!data.session) {
           setNotice(t(
             'Check your email to confirm your account. Your account will start as a student.',
@@ -83,11 +160,53 @@ export default function LoginPage() {
         return
       }
 
-      const { error: signInError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      })
-      if (signInError) throw signInError
+      const identifier = email.trim()
+      if (identifier.includes('@')) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: identifier.toLowerCase(),
+          password,
+        })
+        if (signInError) {
+          setError(getAuthErrorMessage(signInError, mode, t))
+          return
+        }
+      } else {
+        const response = await fetch('/api/auth/username-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: identifier.toLowerCase(), password }),
+        })
+        const result: unknown = await response.json()
+        if (!response.ok) {
+          const message = typeof result === 'object'
+            && result !== null
+            && 'error' in result
+            && typeof result.error === 'string'
+            ? result.error
+            : t('Username or password is incorrect.', 'Nama pengguna atau kata sandi salah.')
+          setError(message)
+          return
+        }
+        if (
+          typeof result !== 'object'
+          || result === null
+          || !('access_token' in result)
+          || typeof result.access_token !== 'string'
+          || !('refresh_token' in result)
+          || typeof result.refresh_token !== 'string'
+        ) {
+          setError(t('Sign-in returned an invalid session. Please try again.', 'Login mengembalikan sesi yang tidak valid. Silakan coba lagi.'))
+          return
+        }
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: result.access_token,
+          refresh_token: result.refresh_token,
+        })
+        if (sessionError) {
+          setError(getAuthErrorMessage(sessionError, mode, t))
+          return
+        }
+      }
       router.replace(nextPath)
     } catch (submitError) {
       console.error(`Supabase ${mode === 'sign_up' ? 'sign-up' : 'sign-in'} failed.`, submitError)
@@ -101,15 +220,15 @@ export default function LoginPage() {
   const configurationError = authState === 'configuration_error' ? authError : ''
 
   return (
-    <div className="relative isolate flex min-h-dvh flex-col overflow-hidden bg-[#f4f7f6] text-slate-800">
+    <div className="auth-page relative isolate flex min-h-dvh flex-col overflow-hidden bg-[#f4f7f6] text-slate-800">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
-        <div className="absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-indigo-100/70 blur-3xl" />
-        <div className="absolute -bottom-48 -right-32 h-[34rem] w-[34rem] rounded-full bg-emerald-100/70 blur-3xl" />
-        <div className="absolute inset-0 opacity-[0.24] [background-image:radial-gradient(#94a3b8_0.7px,transparent_0.7px)] [background-size:22px_22px]" />
+        <div className="auth-indigo-glow absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-indigo-100/70 blur-3xl" />
+        <div className="auth-emerald-glow absolute -bottom-48 -right-32 h-[34rem] w-[34rem] rounded-full bg-emerald-100/70 blur-3xl" />
+        <div className="auth-dot-pattern absolute inset-0 opacity-[0.24] [background-image:radial-gradient(#94a3b8_0.7px,transparent_0.7px)] [background-size:22px_22px]" />
       </div>
 
       <header className="relative z-10 flex items-center justify-end px-5 py-4 sm:px-9 sm:py-5">
-        <div className="inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white/80 p-1 shadow-sm backdrop-blur">
+        <div className="auth-language-control inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white/80 p-1 shadow-sm backdrop-blur">
           {(['en', 'id'] as const).map((option) => (
             <button
               key={option}
@@ -142,18 +261,38 @@ export default function LoginPage() {
 
           <form onSubmit={submit} className="space-y-4">
             <label className="block">
-              <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">{t('Email address', 'Alamat email')}</span>
+              <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">
+                {mode === 'sign_in' ? t('Username or email', 'Nama pengguna atau email') : t('Email address', 'Alamat email')}
+              </span>
               <input
-                type="email"
-                autoComplete="email"
+                type={mode === 'sign_in' ? 'text' : 'email'}
+                autoComplete={mode === 'sign_in' ? 'username' : 'email'}
                 required
                 maxLength={254}
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
                 className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
-                placeholder={t('Email address', 'Alamat email')}
+                placeholder={mode === 'sign_in' ? t('Username or email', 'Nama pengguna atau email') : t('Email address', 'Alamat email')}
               />
             </label>
+
+            {mode === 'sign_up' && (
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">{t('Username', 'Nama pengguna')}</span>
+                <input
+                  type="text"
+                  autoComplete="username"
+                  required
+                  minLength={3}
+                  maxLength={24}
+                  pattern="[A-Za-z0-9_]{3,24}"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  placeholder={t('3–24 letters, numbers, or underscores', '3–24 huruf, angka, atau garis bawah')}
+                />
+              </label>
+            )}
 
             <label className="block">
               <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">{t('Password', 'Kata sandi')}</span>
@@ -208,6 +347,9 @@ export default function LoginPage() {
                 setMode((current) => current === 'sign_in' ? 'sign_up' : 'sign_in')
                 setError('')
                 setNotice('')
+                setEmail('')
+                setUsername('')
+                setPassword('')
               }}
               className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
             >
