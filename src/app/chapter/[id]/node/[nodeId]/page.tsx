@@ -1,12 +1,14 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useRouter, useParams } from 'next/navigation'
-import { CheckCircle2, Heart, Infinity as InfinityIcon, X, XCircle, Trophy } from 'lucide-react'
+import { CheckCircle2, Gift, Heart, Infinity as InfinityIcon, Swords, X, XCircle, Trophy } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
+import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
 import { loadCurriculum, saveNodeProgress } from '@/src/lib/curriculumClient'
-import type { CurriculumNode } from '@/src/lib/teacherContent'
+import { getCurriculumResourceFormat, type CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
 import { useAuth } from '@/src/context/AuthContext'
 import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
@@ -45,11 +47,12 @@ function isCheckedAnswerResult(value: unknown): value is CheckedAnswerResult {
 type LessonContent =
   | { kind: 'text'; value: string }
   | { kind: 'poster'; src: string; alt: string }
-  | { kind: 'material'; src: string; format: 'pdf' | 'ebook' }
+  | { kind: 'material'; src: string; format: 'pdf' | 'ebook' | 'file' }
 
 type NodeData =
   | { type: 'lesson'; title: string; content: LessonContent }
-  | { type: 'quiz'; title: string; questions: QuizQuestion[] }
+  | { type: 'quiz'; title: string; questions: QuizQuestion[]; isBoss: boolean }
+  | { type: 'treasure'; title: string; rewardCurrency: 'xp' | 'gems'; rewardAmount: number; isCompleted: boolean }
 
 export default function NodeActivityPage() {
   const { t } = useLanguage()
@@ -69,30 +72,50 @@ export default function NodeActivityPage() {
     let active = true
     void loadCurriculum(undefined, curriculumScope)
       .then((subjects) => {
-        const node: CurriculumNode | undefined = subjects
-          .flatMap((subject) => subject.chapters)
-          .find((chapter) => chapter.id === chapterId)
-          ?.nodes.find((item) => item.id === nodeId)
+        const chapter = subjects.flatMap((subject) => subject.chapters).find((item) => item.id === chapterId)
+        const node: CurriculumNode | undefined = chapter?.nodes.find((item) => item.id === nodeId)
         if (!active) return
         if (!node) {
           setLoadError(t('This learning activity is unavailable.', 'Aktivitas belajar ini tidak tersedia.'))
           return
         }
-        setNodeData(node.type === 'quiz'
-          ? { type: 'quiz', title: node.title, questions: node.questions }
-          : {
+        if (node.type === 'quiz' || node.type === 'boss') {
+          setNodeData({
+            type: 'quiz',
+            title: node.title,
+            questions: node.questions,
+            isBoss: node.type === 'boss' || chapter?.nodes.at(-1)?.id === node.id,
+          })
+        } else if (node.type === 'treasure') {
+          if (!node.rewardCurrency || !node.rewardAmount) {
+            setLoadError(t('This treasure reward is not configured.', 'Hadiah peti harta ini belum diatur.'))
+            return
+          }
+          setNodeData({
+            type: 'treasure',
+            title: node.title,
+            rewardCurrency: node.rewardCurrency,
+            rewardAmount: node.rewardAmount,
+            isCompleted: node.status === 'completed',
+          })
+        } else {
+          const resourceFormat = getCurriculumResourceFormat(node.resourceUrl)
+          setNodeData({
             type: 'lesson',
             title: node.title,
             content: node.contentType === 'text' || !node.resourceUrl
               ? { kind: 'text', value: node.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') }
-              : node.contentType === 'poster'
+              : node.contentType === 'poster' || resourceFormat === 'image'
                 ? { kind: 'poster', src: node.resourceUrl, alt: node.title }
                 : {
                   kind: 'material',
                   src: node.resourceUrl,
-                  format: node.resourceUrl.toLowerCase().endsWith('.pdf') ? 'pdf' : 'ebook',
-                },
+                    format: resourceFormat === 'pdf'
+                      ? 'pdf'
+                      : resourceFormat === 'presentation' ? 'file' : 'ebook',
+                  },
           })
+        }
       })
       .catch((error) => {
         console.error('Failed to load learning activity.', error)
@@ -104,11 +127,16 @@ export default function NodeActivityPage() {
 
   useEffect(() => {
     if (!isExitDialogOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setIsExitDialogOpen(false)
     }
     window.addEventListener('keydown', closeOnEscape)
-    return () => window.removeEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
   }, [isExitDialogOpen])
 
   const completeActivity = async (attemptId?: string) => {
@@ -118,7 +146,7 @@ export default function NodeActivityPage() {
       updateProfile(result.profile)
       router.push(`/chapter/${chapterId}`)
     } catch (error) {
-      console.error('Failed to save completed activity.', error)
+      console.warn('Failed to save completed activity.', error)
       setProgressError(error instanceof Error ? error.message : t('Could not save your progress. Please try again.', 'Tidak dapat menyimpan progres. Silakan coba lagi.'))
     }
   }
@@ -128,14 +156,14 @@ export default function NodeActivityPage() {
       setIsExitDialogOpen(true)
       return
     }
-    void completeActivity()
+    router.push(`/chapter/${chapterId}`)
   }
 
   if (isLoading) return <AppLoadingScreen message={t('Preparing your activity…', 'Menyiapkan aktivitasmu…')} />
   if (loadError || !nodeData) return <p role="alert" className="p-8 text-center font-bold text-rose-700">{loadError || t('This activity is unavailable.', 'Aktivitas ini tidak tersedia.')}</p>
 
   return (
-    <div className="app-screen-pop mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7">
+    <div className={`${nodeData.type === 'quiz' ? 'app-screen-enter' : ''} mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7`}>
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           {nodeData.type === 'quiz' ? (
@@ -159,11 +187,17 @@ export default function NodeActivityPage() {
             <X className="h-5 w-5 stroke-[2.5]" />
           </button>
         </div>
-        <div className={`mt-4 ${nodeData.type === 'quiz' ? 'hidden md:block' : ''}`}>
+        <div className={`mt-4 ${nodeData.type === 'quiz' && !nodeData.isBoss ? 'hidden md:block' : ''}`}>
           <span className="inline-flex rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide text-indigo-600 md:order-2">
-            {nodeData.type === 'lesson' ? t('Lesson', 'Pelajaran') : t('Quiz', 'Kuis')}
+            {nodeData.type === 'lesson'
+              ? t('Lesson', 'Pelajaran')
+              : nodeData.type === 'treasure'
+                ? t('Treasure', 'Harta')
+                : nodeData.isBoss ? t('Final boss', 'Bos akhir') : t('Quiz', 'Kuis')}
           </span>
-          <h1 className="mt-1 truncate text-xl font-extrabold leading-tight text-slate-700">{nodeData.title}</h1>
+          {nodeData.type !== 'treasure' && nodeData.title && (
+            <h1 className="mt-1 truncate text-xl font-extrabold leading-tight text-slate-700">{nodeData.title}</h1>
+          )}
         </div>
       </div>
 
@@ -172,11 +206,21 @@ export default function NodeActivityPage() {
       <div className="flex flex-1 flex-col justify-center">
         {nodeData.type === 'lesson' ? (
           <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={() => { void completeActivity() }} />
+        ) : nodeData.type === 'treasure' ? (
+          <TreasureActivity
+            title={nodeData.title}
+            rewardCurrency={nodeData.rewardCurrency}
+            rewardAmount={nodeData.rewardAmount}
+            isCompleted={nodeData.isCompleted}
+            onClaim={() => { void completeActivity() }}
+            t={t}
+          />
         ) : (
           <QuizActivity
             nodeId={nodeId}
             title={nodeData.title}
             questions={nodeData.questions}
+            isBoss={nodeData.isBoss}
             onComplete={(attemptId) => { void completeActivity(attemptId) }}
             hearts={hearts}
             superMode={unlimitedHearts}
@@ -186,7 +230,7 @@ export default function NodeActivityPage() {
         )}
       </div>
 
-      {isExitDialogOpen && (
+      {isExitDialogOpen && createPortal(
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm"
           onClick={() => setIsExitDialogOpen(false)}
@@ -240,20 +284,74 @@ export default function NodeActivityPage() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )
 }
 
+function TreasureActivity({
+  title,
+  rewardCurrency,
+  rewardAmount,
+  isCompleted,
+  onClaim,
+  t,
+}: {
+  title: string
+  rewardCurrency: 'xp' | 'gems'
+  rewardAmount: number
+  isCompleted: boolean
+  onClaim: () => void
+  t: (en: string, id: string) => string
+}) {
+  return (
+    <section className="overflow-hidden rounded-3xl border-2 border-amber-200 bg-white shadow-sm">
+      <div className="flex flex-col items-center gap-4 bg-amber-50 px-6 py-10 text-center sm:px-8">
+        <span className="grid h-20 w-20 place-items-center rounded-3xl border-2 border-amber-200 bg-white text-amber-500 shadow-sm">
+          <Gift className="h-10 w-10" />
+        </span>
+        <div>
+          <p className="text-xs font-extrabold uppercase tracking-widest text-amber-600">
+            {t('Treasure found', 'Peti harta ditemukan')}
+          </p>
+          <p className="mt-2 text-sm font-semibold text-slate-500">
+            {t('A one-time reward is waiting inside.', 'Hadiah satu kali menantimu di dalam.')}
+          </p>
+        </div>
+        <div className="rounded-2xl border-2 border-amber-200 bg-white px-6 py-3 text-2xl font-black text-amber-700">
+          +{rewardAmount} {rewardCurrency === 'gems' ? t('gems', 'permata') : 'XP'}
+        </div>
+      </div>
+      <div className="p-4 sm:p-6">
+        <button
+          type="button"
+          onClick={onClaim}
+          disabled={isCompleted}
+          className="w-full rounded-2xl border-b-4 border-amber-800 bg-amber-500 px-5 py-4 font-extrabold text-white transition-colors hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
+        >
+          {isCompleted ? t('Already collected', 'Sudah diklaim') : t('Open treasure', 'Buka peti harta')}
+        </button>
+      </div>
+    </section>
+  )
+}
+
 function LessonActivity({ title, content, onComplete }: { title: string; content: LessonContent; onComplete: () => void }) {
   const { t } = useLanguage()
-  const mediaNote = content.kind === 'text'
-    ? ''
-    : t(
-      'The linked poster or document is not readable by the tutor yet. Describe the part you want help with.',
-      'Tutor belum dapat membaca poster atau dokumen yang ditautkan. Jelaskan bagian yang ingin kamu tanyakan.'
+  const [pdfText, setPdfText] = useState('')
+  const media = content.kind === 'poster'
+    ? { type: 'image' as const, url: content.src }
+    : content.kind === 'material' && content.format === 'pdf'
+      ? { type: 'pdf' as const, text: pdfText }
+      : undefined
+  const mediaNote = content.kind === 'material' && content.format === 'pdf' && !pdfText
+    ? t(
+      'This PDF has no selectable text. Scanned-image PDFs cannot be read by the tutor yet.',
+      'PDF ini tidak memiliki teks yang dapat dipilih. Tutor belum dapat membaca hasil pindai berupa gambar.'
     )
+    : ''
 
   return (
     <div className="space-y-6">
@@ -271,20 +369,31 @@ function LessonActivity({ title, content, onComplete }: { title: string; content
           />
         )}
         {content.kind === 'material' && (
-          <div className="space-y-3">
-            <iframe
-              src={content.src}
-              title={content.format === 'pdf' ? t('PDF material', 'Materi PDF') : t('E-book material', 'Materi e-book')}
-              className="w-full h-[65vh] min-h-96 rounded-2xl border-2 border-slate-200 bg-slate-50"
-            />
-            <a
-              href={content.src}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex font-bold text-slate-700 underline underline-offset-4"
-            >
-              {t('Open material in a new tab', 'Buka materi di tab baru')}
-            </a>
+          <div>
+            {content.format === 'pdf' ? (
+              <PdfMaterialPreview
+                src={content.src}
+                title={t('PDF material', 'Materi PDF')}
+                t={t}
+                onTextExtracted={setPdfText}
+              />
+            ) : content.format !== 'file' ? (
+              <iframe
+                src={content.src}
+                title={t('E-book material', 'Materi e-book')}
+                className="w-full h-[65vh] min-h-96 rounded-2xl border-2 border-slate-200 bg-slate-50"
+              />
+            ) : null}
+            {content.format === 'file' && (
+              <a
+                href={content.src}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex font-bold text-slate-700 underline underline-offset-4"
+              >
+                {t('Open PowerPoint file', 'Buka file PowerPoint')}
+              </a>
+            )}
           </div>
         )}
       </div>
@@ -295,6 +404,7 @@ function LessonActivity({ title, content, onComplete }: { title: string; content
           title,
           content: content.kind === 'text' ? content.value : '',
           mediaNote,
+          media,
         }}
       />
 
@@ -319,6 +429,7 @@ function QuizActivity({
   nodeId,
   title,
   questions,
+  isBoss,
   onComplete,
   hearts,
   superMode,
@@ -328,6 +439,7 @@ function QuizActivity({
   nodeId: string
   title: string
   questions: QuizQuestion[]
+  isBoss: boolean
   onComplete: (attemptId: string) => void
   hearts: number
   superMode: boolean
@@ -359,7 +471,6 @@ function QuizActivity({
 
   useEffect(() => {
     if (attemptId || isFinished) return
-    if (isActivatingSuperMode) return
     if (hearts <= 0 && !superMode) {
       setAttemptError(t('You are out of hearts. Refill your hearts or activate Super Mode to continue.', 'Kamu kehabisan hati. Isi ulang hati atau aktifkan Mode Super untuk melanjutkan.'))
       return
@@ -386,7 +497,7 @@ function QuizActivity({
       if (active) setAttemptError(error instanceof Error ? error.message : t('Could not start this quiz.', 'Tidak dapat memulai kuis ini.'))
     })
     return () => { active = false }
-  }, [attemptId, hearts, isActivatingSuperMode, isFinished, nodeId, superMode, t])
+  }, [attemptId, hearts, isFinished, nodeId, superMode, t])
 
   const currentQuestion = questions[currentIndex]
   const currentResponse = responses[currentIndex]
@@ -462,11 +573,13 @@ function QuizActivity({
 
   if (isFinished) {
     return (
-      <div className="w-full bg-white border-2 border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm text-center">
-        <div className="w-20 h-20 bg-amber-100 text-amber-500 rounded-full flex items-center justify-center mx-auto mb-6">
-          <Trophy className="w-10 h-10" />
+      <div className={`w-full border-2 rounded-3xl p-6 sm:p-8 shadow-sm text-center ${isBoss ? 'border-rose-200 bg-rose-50' : 'border-slate-100 bg-white'}`}>
+        <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${isBoss ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-500'}`}>
+          {isBoss ? <Swords className="w-10 h-10" /> : <Trophy className="w-10 h-10" />}
         </div>
-        <h2 className="text-2xl font-black text-slate-800 mb-2">{t('Quiz Complete!', 'Kuis Selesai!')}</h2>
+        <h2 className="text-2xl font-black text-slate-800 mb-2">
+          {isBoss ? t('Boss defeated!', 'Bos dikalahkan!') : t('Quiz Complete!', 'Kuis Selesai!')}
+        </h2>
         <p className="text-slate-500 font-bold mb-8">
           {t('You scored', 'Kamu mendapat')} {score} {t('out of', 'dari')} {questions.length}
         </p>
@@ -521,11 +634,16 @@ function QuizActivity({
         </div>
       </div>
 
-      <div className="bg-white border-2 border-slate-100 rounded-3xl p-6 shadow-sm">
+      <div className={`rounded-3xl border-2 p-6 shadow-sm ${isBoss ? 'border-rose-200 bg-rose-50' : 'border-slate-100 bg-white'}`}>
         <div className="mb-4 flex items-center justify-between gap-3">
           <span className="inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white px-3 py-1.5 text-sm font-extrabold text-rose-500">
             <Heart className="h-4 w-4 fill-rose-500" /> {superMode ? '∞' : hearts}
           </span>
+          {isBoss && (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-rose-700">
+              <Swords className="h-4 w-4" /> {t('Final boss', 'Bos akhir')}
+            </span>
+          )}
           {!superMode && hearts <= 0 && (
             <button
               type="button"

@@ -1,15 +1,17 @@
-import { redirect } from 'next/navigation'
-import { authenticateAppUser } from '@/src/lib/auth/server'
+'use client'
 
-export const dynamic = 'force-dynamic'
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+import { useAuth } from '@/src/context/AuthContext'
 
-export default async function TeacherLayout({ children }: { children: React.ReactNode }) {
-  const authentication = await authenticateAppUser()
-  if (
-    !authentication.appUser
-    || (authentication.appUser.role !== 'TEACHER' && authentication.appUser.role !== 'ADMIN')
-  ) {
-    redirect('/')
-  }
-  return children
+export default function TeacherLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter()
+  const { role } = useAuth()
+  const hasTeacherAccess = role === 'TEACHER' || role === 'ADMIN'
+
+  useEffect(() => {
+    if (!hasTeacherAccess) router.replace('/')
+  }, [hasTeacherAccess, router])
+
+  return hasTeacherAccess ? children : null
 }

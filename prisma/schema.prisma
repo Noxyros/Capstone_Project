@@ -23,6 +23,13 @@ enum PowerUpType {
 enum RoadmapNodeType {
   LESSON
   QUIZ
+  BOSS
+  TREASURE
+}
+
+enum RoadmapRewardCurrency {
+  XP
+  GEMS
 }
 
 enum RoadmapContentType {
@@ -46,6 +53,8 @@ model User {
   maxHearts          Int                    @default(5)
   superMode          Boolean                @default(false)
   doubleXpUntil      DateTime?
+  doubleGemsUntil    DateTime?
+  doubleGemsPausedAt DateTime?
   lastActive         DateTime               @default(now())
   lastActivityDate   String?                @db.VarChar(10)
   powerUps           UserPowerUp[]
@@ -59,6 +68,10 @@ model User {
   language           String                 @default("en")
   createdSubjects    Subject[]              @relation("SubjectCreator")
   subjectEnrollments SubjectEnrollment[]
+  dailyQuizzes       DailyQuiz[]
+  dailyChallenges   DailyChallenge[]
+  dailyChallengeQuestions DailyChallengeQuestion[]
+  dailyChallengeAnswers DailyChallengeAnswer[]
   nodeProgress       NodeProgress[]
   rewardEvents       RewardEvent[]
   quizAttempts       QuizAttempt[]
@@ -109,13 +122,25 @@ model UserQuestProgress {
 }
 
 model DailyQuiz {
-  id       String                 @id @default(uuid())
-  date     String                 @unique // Format: "YYYY-MM-DD" for 1-a-day lock
-  title    String                 @default("Are You Smarter Than a 7th Grader?")
-  prompt   String
-  xpReward Int                    @default(50)
-  options  DailyQuizOption[]
-  attempts UserDailyQuizAttempt[]
+  id               String                 @id @default(uuid())
+  userId           String?
+  date             String // Format: "YYYY-MM-DD" in Asia/Jakarta
+  monthKey         String?                @db.VarChar(7)
+  questionKey      String?
+  sourceQuestionId String?
+  subjectName      String?
+  gradeLevel       Int?
+  title            String                 @default("Daily Challenge")
+  prompt           String
+  xpReward         Int                    @default(50)
+  user             User?                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  options          DailyQuizOption[]
+  attempts         UserDailyQuizAttempt[]
+
+  @@unique([userId, date])
+  @@unique([userId, monthKey, questionKey])
+  @@unique([userId, monthKey, sourceQuestionId])
+  @@index([userId, monthKey])
 }
 
 model DailyQuizOption {
@@ -136,6 +161,59 @@ model UserDailyQuizAttempt {
   dailyQuiz   DailyQuiz @relation(fields: [dailyQuizId], references: [id], onDelete: Cascade)
 
   @@unique([userId, dailyQuizId]) // Guarantees Wordle-style ONCE-PER-DAY limit per user
+}
+
+model DailyChallenge {
+  id        String                  @id @default(uuid())
+  userId    String
+  date      String                  @db.VarChar(10)
+  createdAt DateTime                @default(now())
+  user      User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  questions DailyChallengeQuestion[]
+
+  @@unique([userId, date])
+}
+
+model DailyChallengeQuestion {
+  id               String                 @id @default(uuid())
+  challengeId      String
+  userId           String
+  monthKey         String                 @db.VarChar(7)
+  questionKey      String
+  sourceQuestionId String?
+  position         Int
+  subjectName      String
+  gradeLevel       Int
+  prompt           String
+  challenge        DailyChallenge        @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  options          DailyChallengeOption[]
+  answers          DailyChallengeAnswer[]
+
+  @@unique([challengeId, position])
+  @@unique([userId, monthKey, questionKey])
+  @@unique([userId, monthKey, sourceQuestionId])
+  @@index([userId, monthKey])
+}
+
+model DailyChallengeOption {
+  id         String                 @id @default(uuid())
+  text       String
+  isCorrect  Boolean                @default(false)
+  questionId String
+  question   DailyChallengeQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model DailyChallengeAnswer {
+  id                 String                 @id @default(uuid())
+  userId             String
+  challengeQuestionId String
+  passed             Boolean                @default(false)
+  completedAt        DateTime               @default(now())
+  user               User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  question           DailyChallengeQuestion @relation(fields: [challengeQuestionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, challengeQuestionId])
 }
 
 model Grade {
@@ -168,30 +246,50 @@ model Chapter {
   isPublished Boolean        @default(true)
   subjectId   String
   subject     Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+  submodules  Submodule[]
   nodes       RoadmapNode[]
   progress    UserProgress[]
 
   @@index([subjectId, order])
 }
 
+model Submodule {
+  id          String        @id
+  title       String
+  order       Int           @default(1)
+  summaryText String        @default("") @db.Text
+  isPublished Boolean       @default(true)
+  chapterId   String
+  chapter     Chapter       @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  nodes       RoadmapNode[]
+
+  @@unique([chapterId, order])
+  @@index([chapterId])
+}
+
 model RoadmapNode {
-  id           String             @id
-  title        String
-  order        Int                @default(1)
-  type         RoadmapNodeType
-  contentType  RoadmapContentType @default(TEXT)
-  content      String             @db.Text
-  resourceUrl  String             @db.Text
-  isPublished  Boolean            @default(true)
-  chapterId    String
-  chapter      Chapter            @relation(fields: [chapterId], references: [id], onDelete: Cascade)
-  questions    Question[]
-  progress     NodeProgress[]
-  quizAttempts QuizAttempt[]
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
+  id             String                 @id
+  title          String
+  order          Int                    @default(1)
+  type           RoadmapNodeType
+  contentType    RoadmapContentType     @default(TEXT)
+  content        String                 @db.Text
+  resourceUrl    String                 @db.Text
+  isPublished    Boolean                @default(true)
+  rewardCurrency RoadmapRewardCurrency?
+  rewardAmount   Int?
+  chapterId      String
+  chapter        Chapter                @relation(fields: [chapterId], references: [id], onDelete: Cascade)
+  submoduleId    String?
+  submodule      Submodule?             @relation(fields: [submoduleId], references: [id], onDelete: SetNull)
+  questions      Question[]
+  progress       NodeProgress[]
+  quizAttempts   QuizAttempt[]
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
 
   @@index([chapterId, order])
+  @@index([submoduleId, order])
 }
 
 model Question {

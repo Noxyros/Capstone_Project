@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { Prisma, RoadmapNodeType } from '@prisma/client'
+import { Prisma, RoadmapNodeType, RoadmapRewardCurrency } from '@prisma/client'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import { getAppProfile, recordActivityDay, recordReward, REWARDS } from '@/src/lib/gameEconomy'
+import { syncDailyQuestRewards } from '@/src/lib/dailyQuestRewards'
 import { prisma } from '@/src/lib/prisma'
 
 export async function GET() {
@@ -54,17 +55,24 @@ export async function POST(request: Request) {
         id: true,
         chapterId: true,
         type: true,
+        rewardCurrency: true,
+        rewardAmount: true,
         questions: { select: { id: true } },
       },
     })
     if (!node) return NextResponse.json({ error: 'This learning activity is unavailable.' }, { status: 404 })
 
     const attemptId = 'attemptId' in body && typeof body.attemptId === 'string' ? body.attemptId : null
-    if (node.type === RoadmapNodeType.QUIZ && !attemptId) {
+    const isQuizActivity = node.type === RoadmapNodeType.QUIZ || node.type === RoadmapNodeType.BOSS
+    if (isQuizActivity && !attemptId) {
       return NextResponse.json({ error: 'Submit the quiz answers before finishing the quiz.' }, { status: 400 })
     }
-    if (node.type !== RoadmapNodeType.QUIZ && attemptId) {
-      return NextResponse.json({ error: 'A quiz attempt cannot be used to finish this lesson.' }, { status: 400 })
+    if (!isQuizActivity && attemptId) {
+      return NextResponse.json({ error: 'A quiz attempt cannot be used to finish this activity.' }, { status: 400 })
+    }
+    if (node.type === RoadmapNodeType.TREASURE
+      && (!node.rewardCurrency || !node.rewardAmount || node.rewardAmount < 10)) {
+      return NextResponse.json({ error: 'This treasure reward is not configured.' }, { status: 500 })
     }
 
     const result = await prisma.$transaction(async (transaction) => {
@@ -113,7 +121,7 @@ export async function POST(request: Request) {
           completedAt: new Date(),
           bestScore,
         },
-        update: { completedAt: previousProgress?.completedAt ?? new Date(), bestScore },
+        update: { completedAt: new Date(), bestScore },
       })
 
       const remainingNodes = await transaction.roadmapNode.count({
@@ -139,9 +147,17 @@ export async function POST(request: Request) {
       const firstCompletion = !previousProgress?.completedAt
       const user = await transaction.user.findUniqueOrThrow({
         where: { id: authentication.appUser.id },
-        select: { doubleXpUntil: true },
+        select: {
+          doubleXpUntil: true,
+          doubleGemsUntil: true,
+          doubleGemsPausedAt: true,
+        },
       })
-      const xpMultiplier = user.doubleXpUntil && user.doubleXpUntil > new Date() ? 2 : 1
+      const now = new Date()
+      const xpMultiplier = user.doubleXpUntil && user.doubleXpUntil > now ? 2 : 1
+      const gemBoostActive = Boolean(user.doubleGemsPausedAt)
+        || Boolean(user.doubleGemsUntil && user.doubleGemsUntil > now)
+      const gemMultiplier = gemBoostActive ? 2 : 1
       let xpAwarded = 0
       let gemsAwarded = 0
       if (firstCompletion) {
@@ -150,11 +166,30 @@ export async function POST(request: Request) {
           authentication.appUser.id,
           `node:${node.id}:completion`,
           REWARDS.firstCompletionXp * xpMultiplier,
-          REWARDS.firstCompletionGems,
+          REWARDS.firstCompletionGems * gemMultiplier,
         )
         if (awarded) {
           xpAwarded += REWARDS.firstCompletionXp * xpMultiplier
-          gemsAwarded += REWARDS.firstCompletionGems
+          gemsAwarded += REWARDS.firstCompletionGems * gemMultiplier
+        }
+        if (node.type === RoadmapNodeType.TREASURE && node.rewardCurrency && node.rewardAmount) {
+          const treasureXp = node.rewardCurrency === RoadmapRewardCurrency.XP
+            ? node.rewardAmount * xpMultiplier
+            : 0
+          const treasureGems = node.rewardCurrency === RoadmapRewardCurrency.GEMS
+            ? node.rewardAmount * gemMultiplier
+            : 0
+          const treasureAwarded = await recordReward(
+            transaction,
+            authentication.appUser.id,
+            `node:${node.id}:treasure`,
+            treasureXp,
+            treasureGems,
+          )
+          if (treasureAwarded) {
+            xpAwarded += treasureXp
+            gemsAwarded += treasureGems
+          }
         }
       }
       if (score === 100) {
@@ -167,7 +202,9 @@ export async function POST(request: Request) {
         )
         if (awarded) xpAwarded += REWARDS.perfectQuizXp * xpMultiplier
       }
-      await recordActivityDay(transaction, authentication.appUser.id)
+      await recordActivityDay(transaction, authentication.appUser.id, now)
+      const questRewards = await syncDailyQuestRewards(transaction, authentication.appUser.id, now)
+      xpAwarded += questRewards.xpAwarded
       return { alreadyCompleted: false, score, xpAwarded, gemsAwarded }
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
 

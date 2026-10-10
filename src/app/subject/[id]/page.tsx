@@ -6,11 +6,12 @@ import { useParams } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
+import { localizeSubjectName } from '@/src/lib/curriculumLocalization'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { useAuth } from '@/src/context/AuthContext'
 
 export default function SubjectDetailPage() {
-  const { t } = useLanguage()
+  const { t, language } = useLanguage()
   const { user } = useAuth()
   const curriculumScope = user?.id ?? 'public'
   const params = useParams<{ id: string }>()
@@ -39,7 +40,7 @@ export default function SubjectDetailPage() {
         </Link>
         <div>
           <h1 className="text-2xl font-extrabold text-slate-700">
-            {subject?.name ?? t('Subject Modules', 'Modul Pelajaran')}
+            {subject ? localizeSubjectName(subject.name, language) : t('Subject Modules', 'Modul Pelajaran')}
           </h1>
           <p className="text-sm font-semibold text-slate-400">
             {t('Select a module to continue learning', 'Pilih modul untuk melanjutkan belajar')}

@@ -16,6 +16,7 @@
     "lucide-react": "^1.47.0",
     "next": "^16.3.5",
     "nsfwjs": "^4.3.0",
+    "pdfjs-dist": "^5.7.284",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-math": "^6.0.0",

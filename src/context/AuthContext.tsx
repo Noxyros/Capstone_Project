@@ -5,7 +5,7 @@ import type { User as SupabaseUser } from '@supabase/supabase-js'
 import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/client'
 import { isAppProfile, type AppProfile, type AppRole } from '@/src/lib/appProfile'
 import { invalidateCurriculumCache } from '@/src/lib/curriculumClient'
-import { invalidateLeaderboardCache } from '@/src/lib/leaderboardClient'
+import { invalidateLeaderboardCache, markLeaderboardCacheStale } from '@/src/lib/leaderboardClient'
 
 type AuthState = 'loading' | 'signed_out' | 'signed_in' | 'configuration_error' | 'profile_error'
 
@@ -218,7 +218,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError('')
     if (user) {
       writeCachedProfile(user.id, nextProfile)
-      if (invalidateLeaderboard) invalidateLeaderboardCache(user.id)
+      if (invalidateLeaderboard) markLeaderboardCacheStale(user.id)
     }
   }, [user])
 

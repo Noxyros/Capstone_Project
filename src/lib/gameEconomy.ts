@@ -1,6 +1,9 @@
 import { PowerUpType, Prisma } from '@prisma/client'
 import { prisma } from '@/src/lib/prisma'
 import type { AppProfile } from '@/src/lib/appProfile'
+import { jakartaCalendarDateKey, jakartaDateKey } from '@/src/lib/dailyQuests'
+
+export { jakartaDateKey } from '@/src/lib/dailyQuests'
 
 export const REWARDS = {
   firstCompletionXp: 20,
@@ -24,7 +27,7 @@ export const POWER_UP_CATALOG = {
   },
   [PowerUpType.DOUBLE_XP]: {
     name: 'Double XP Boost',
-    description: 'Double lesson XP for 15 minutes.',
+    description: 'Double XP earned from lessons for 15 minutes.',
     icon: 'zap',
   },
   [PowerUpType.STREAK_FREEZE]: {
@@ -34,23 +37,12 @@ export const POWER_UP_CATALOG = {
   },
 } satisfies Record<PowerUpType, { name: string; description: string; icon: string }>
 
-export function jakartaDateKey(date = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Jakarta',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(date)
-  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value ?? ''
-  return `${part('year')}-${part('month')}-${part('day')}`
-}
-
 export function shiftDateKey(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split('-').map(Number)
   return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
 }
 
-export function jakartaWeekStart(dateKey = jakartaDateKey()): string {
+export function jakartaWeekStart(dateKey = jakartaCalendarDateKey()): string {
   const [year, month, day] = dateKey.split('-').map(Number)
   const date = new Date(Date.UTC(year!, month! - 1, day!))
   const daysSinceMonday = (date.getUTCDay() + 6) % 7
@@ -58,7 +50,8 @@ export function jakartaWeekStart(dateKey = jakartaDateKey()): string {
 }
 
 export async function getAppProfile(userId: string): Promise<AppProfile | null> {
-  const today = jakartaDateKey()
+  const today = jakartaCalendarDateKey()
+  const activityDate = jakartaDateKey()
   const weekStart = jakartaWeekStart(today)
   const monthStart = `${today.slice(0, 7)}-01`
   const weekStartInstant = new Date(`${weekStart}T00:00:00+07:00`)
@@ -80,13 +73,15 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
         maxHearts: true,
         superMode: true,
         doubleXpUntil: true,
+        doubleGemsUntil: true,
+        doubleGemsPausedAt: true,
         createdAt: true,
         powerUps: {
           where: { powerUp: { code: PowerUpType.STREAK_FREEZE } },
           select: { quantity: true },
         },
         activityDays: {
-          where: { date: { gte: monthStart, lte: today } },
+          where: { date: { gte: monthStart, lte: activityDate } },
           orderBy: { date: 'asc' },
           select: { date: true },
         },
@@ -130,6 +125,8 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
     maxHearts: user.maxHearts,
     superMode: user.superMode,
     doubleXpUntil: user.doubleXpUntil?.toISOString() ?? null,
+    doubleGemsUntil: user.doubleGemsUntil?.toISOString() ?? null,
+    doubleGemsPausedAt: user.doubleGemsPausedAt?.toISOString() ?? null,
     streakFreezeCount: user.powerUps[0]?.quantity ?? 0,
     createdAt: user.createdAt.toISOString(),
     rank,

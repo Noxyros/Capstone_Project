@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Flame, Heart, ChevronDown, GraduationCap, Gem, Snowflake, X, Zap, Infinity, Sparkles } from 'lucide-react'
+import { Flame, Heart, ChevronDown, GraduationCap, Gem, Snowflake, X, Zap, Infinity } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useUser } from '@/src/context/UserContext'
 
@@ -95,8 +95,11 @@ export default function StatsPanel() {
     activityDates,
     freezesEquipped,
     doubleXpUntil,
+    doubleGemsUntil,
+    doubleGemsPausedAt,
+    superMode,
     isMutating,
-    isSuperModePending,
+    isSuperModeSaving,
     gameError,
     buyPowerUp,
     setSuperMode,
@@ -107,8 +110,9 @@ export default function StatsPanel() {
   const [now, setNow] = useState(() => Date.now())
   const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
   const xpBoostActive = xpBoostSecondsLeft > 0
-  const gemSurgeActive = xpBoostActive
-  const gemSurgeSecondsLeft = xpBoostSecondsLeft
+  const gemTimerAnchor = superMode && doubleGemsPausedAt ? Date.parse(doubleGemsPausedAt) : now
+  const gemBoostSecondsLeft = doubleGemsUntil ? Math.max(0, Math.ceil((Date.parse(doubleGemsUntil) - gemTimerAnchor) / 1000)) : 0
+  const gemBoostActive = gemBoostSecondsLeft > 0
 
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -121,10 +125,10 @@ export default function StatsPanel() {
   }, [])
 
   useEffect(() => {
-    if (!xpBoostActive) return
+    if (!xpBoostActive && (!gemBoostActive || superMode)) return
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
-  }, [xpBoostActive])
+  }, [gemBoostActive, superMode, xpBoostActive])
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -143,8 +147,7 @@ export default function StatsPanel() {
 
   const handleSacrificeSurge = () => void activateHeartSurge()
 
-  const isSurgeDisabled = isMutating || gemSurgeActive || unlimitedHearts || hearts <= 4
-  const isHeartRefillDisabled = isMutating || isSuperModePending || unlimitedHearts || gems < 250 || hearts >= maxHearts
+  const isSurgeDisabled = isMutating || isSuperModeSaving || gemBoostActive || unlimitedHearts || hearts <= 4
 
   return (
     <div ref={rootRef} className="relative flex items-center justify-between gap-2 font-extrabold w-full lg:flex-col lg:items-stretch">
@@ -240,15 +243,15 @@ export default function StatsPanel() {
                     <button
                       type="button"
                       onClick={handleToggleUnlimited}
-                      disabled={isSuperModePending}
+                      disabled={isSuperModeSaving}
                       role="switch"
                       aria-checked={unlimitedHearts}
                       aria-label={t('Super Mode', 'Mode Super')}
-                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-100 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                      className={`w-12 h-6 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
                         }`}
                     >
                       <div
-                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-100 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
+                        className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
                       />
                     </button>
                   </div>
@@ -258,15 +261,17 @@ export default function StatsPanel() {
                 <div className="bg-white border-2 border-slate-200 rounded-xl p-3">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2.5">
-                      <Sparkles className="w-5 h-5 text-indigo-500 shrink-0" />
+                      <Gem className="w-5 h-5 text-sky-500 shrink-0" />
                       <div>
                         <div className="text-xs font-black uppercase tracking-wide text-slate-700">
-                          {t('Double XP', 'Double XP')}
+                          {t('Double Gems', 'Permata Ganda')}
                         </div>
                         <div className="text-[11px] font-bold mt-0.5 text-slate-400">
-                          {gemSurgeActive
-                            ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
-                            : t('Sacrifice 4 hearts', 'Korbankan 4 hati')}
+                          {gemBoostActive
+                            ? superMode
+                              ? `${formatTimer(gemBoostSecondsLeft)} · ${t('paused in Super Mode', 'dijeda dalam Mode Super')}`
+                              : `${formatTimer(gemBoostSecondsLeft)} ${t('remaining', 'tersisa')}`
+                            : t('Sacrifice 4 hearts for 2× gems for 7 min', 'Korbankan 4 hati untuk 2× permata selama 7 menit')}
                         </div>
                       </div>
                     </div>
@@ -275,11 +280,9 @@ export default function StatsPanel() {
                       disabled={isSurgeDisabled}
                       className="bg-indigo-200 text-indigo-600 hover:bg-indigo-300 disabled:opacity-40 disabled:hover:bg-indigo-200 font-extrabold text-xs px-4 py-2 rounded-xl transition-all shrink-0"
                     >
-                      {gemSurgeActive && unlimitedHearts
-                        ? t('Disabled', 'Nonaktif')
-                        : gemSurgeActive
-                          ? t('Active', 'Aktif')
-                          : t('Risk It', 'Korbankan')}
+                      {gemBoostActive
+                      ? t('Active', 'Aktif')
+                      : t('Risk It', 'Korbankan')}
                     </button>
                   </div>
                 </div>
@@ -382,15 +385,15 @@ export default function StatsPanel() {
                       <button
                         type="button"
                         onClick={handleToggleUnlimited}
-                        disabled={isSuperModePending}
+                        disabled={isSuperModeSaving}
                         role="switch"
                         aria-checked={unlimitedHearts}
                         aria-label={t('Super Mode', 'Mode Super')}
-                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-100 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
+                        className={`w-14 h-8 flex items-center rounded-full p-1 transition-colors duration-300 ${unlimitedHearts ? 'bg-indigo-600' : 'bg-slate-200'
                           }`}
                       >
                         <div
-                          className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-100 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
+                          className={`bg-white w-6 h-6 rounded-full shadow-md transform transition-transform duration-300 ${unlimitedHearts ? 'translate-x-6' : 'translate-x-0'}`}
                         />
                       </button>
                     </div>
@@ -398,15 +401,17 @@ export default function StatsPanel() {
                     {/* Gems Surge Challenge Mobile */}
                     <div className="rounded-2xl bg-white p-4 border-2 border-slate-200 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <Sparkles className="w-6 h-6 text-indigo-500 shrink-0" />
+                        <Gem className="w-6 h-6 text-sky-500 shrink-0" />
                         <div className="text-left">
                           <div className="font-extrabold text-slate-800 text-base uppercase tracking-wide">
-                            {t('Double XP', 'Double XP')}
+                            {t('Double Gems', 'Permata Ganda')}
                           </div>
                           <div className="text-xs font-bold mt-0.5 text-slate-500">
-                            {gemSurgeActive
-                              ? `${formatTimer(gemSurgeSecondsLeft)} ${t('remaining', 'tersisa')}`
-                              : t('Sacrifice 4 hearts', 'Korbankan 4 hati')}
+                            {gemBoostActive
+                              ? superMode
+                                ? `${formatTimer(gemBoostSecondsLeft)} · ${t('paused in Super Mode', 'dijeda dalam Mode Super')}`
+                                : `${formatTimer(gemBoostSecondsLeft)} ${t('remaining', 'tersisa')}`
+                              : t('Sacrifice 4 hearts for 2× gems for 7 min', 'Korbankan 4 hati untuk 2× permata selama 7 menit')}
                           </div>
                         </div>
                       </div>
@@ -415,11 +420,9 @@ export default function StatsPanel() {
                         disabled={isSurgeDisabled}
                         className="bg-indigo-200 text-indigo-600 hover:bg-indigo-300 disabled:opacity-40 disabled:hover:bg-indigo-200 font-extrabold text-sm px-5 py-2.5 rounded-xl transition-all"
                       >
-                        {gemSurgeActive && unlimitedHearts
-                          ? t('Disabled', 'Nonaktif')
-                          : gemSurgeActive
-                            ? t('Active', 'Aktif')
-                            : t('Risk It', 'Risiko')}
+                        {gemBoostActive
+                          ? t('Active', 'Aktif')
+                          : t('Risk It', 'Korbankan')}
                       </button>
                     </div>
                   </div>
@@ -442,7 +445,7 @@ export default function StatsPanel() {
                   <div className="space-y-4">
                     <button
                       onClick={handleBuyHearts}
-                      disabled={isHeartRefillDisabled}
+                      disabled={isMutating || gems < 250 || hearts >= maxHearts}
                       className="w-full flex items-center justify-between rounded-2xl bg-white p-4 border-2 border-slate-200 active:border-slate-300 transition-all group disabled:opacity-50 disabled:bg-slate-50"
                     >
                       <div className="flex items-center gap-4">
@@ -474,10 +477,12 @@ export default function StatsPanel() {
                         </div>
                         <div className="text-left">
                           <div className="font-extrabold text-slate-700 text-lg">
-                            {t('2x XP Boost', '2x XP Boost')}
+                            {t('2x XP Boost', 'Boost 2× XP')}
                           </div>
                           <div className="text-xs font-bold text-slate-400 mt-0.5">
-                            {xpBoostActive ? `${formatTimer(xpBoostSecondsLeft)} ${t('remaining', 'tersisa')}` : t('15 mins double XP', '15 menit double XP')}
+                            {xpBoostActive
+                              ? `${formatTimer(xpBoostSecondsLeft)} ${t('remaining', 'tersisa')}`
+                              : t('Double lesson XP for 15 mins', 'XP pelajaran 2× selama 15 menit')}
                           </div>
                         </div>
                       </div>

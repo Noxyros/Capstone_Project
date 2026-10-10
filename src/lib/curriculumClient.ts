@@ -1,8 +1,9 @@
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
+import { invalidateDailyQuestCache } from '@/src/lib/dailyQuestClient'
 
 const CURRICULUM_CACHE_TTL_MS = 5 * 60 * 1000
-const CURRICULUM_CACHE_PREFIX = 'questly_curriculum:'
+const CURRICULUM_CACHE_PREFIX = 'questly_curriculum:v4:'
 const CURRICULUM_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000
 const curriculumCache = new Map<string, { subjects: CurriculumSubject[]; fetchedAt: number }>()
 const curriculumRequests = new Map<string, Promise<CurriculumSubject[]>>()
@@ -17,7 +18,15 @@ function isCurriculumSubjects(value: unknown): value is CurriculumSubject[] {
     && subject !== null
     && 'id' in subject && typeof subject.id === 'string'
     && 'name' in subject && typeof subject.name === 'string'
-    && 'chapters' in subject && Array.isArray(subject.chapters))
+    && 'chapters' in subject
+    && Array.isArray(subject.chapters)
+    && subject.chapters.every((chapter: unknown) =>
+      typeof chapter === 'object'
+      && chapter !== null
+      && 'submodules' in chapter
+      && Array.isArray(chapter.submodules)
+      && 'nodes' in chapter
+      && Array.isArray(chapter.nodes)))
 }
 
 export function getCachedCurriculum(view?: 'teacher', scope = 'public'): CurriculumSubject[] | null {
@@ -152,6 +161,7 @@ export async function saveNodeProgress(nodeId: string, attemptId?: string): Prom
   ) {
     throw new Error('The server returned invalid learning reward data.')
   }
+  invalidateDailyQuestCache()
   invalidateCurriculumCache()
   return { profile: result.profile, rewards: { xp: result.rewards.xp, gems: result.rewards.gems } }
 }

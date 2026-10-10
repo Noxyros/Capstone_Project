@@ -1,6 +1,8 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { LogOut } from 'lucide-react'
 
 interface LogoutConfirmDialogProps {
   open: boolean
@@ -27,7 +29,7 @@ export default function LogoutConfirmDialog({
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isSubmitting, onClose, open])
 
-  if (!open) return null
+  if (!open || typeof document === 'undefined') return null
 
   const confirmLogout = async () => {
     setError('')
@@ -43,7 +45,7 @@ export default function LogoutConfirmDialog({
     }
   }
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
       <section
         role="dialog"
@@ -52,9 +54,12 @@ export default function LogoutConfirmDialog({
         className="w-full max-w-sm space-y-4 rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl"
       >
         <div>
-          <h2 id="logout-dialog-title" className="text-xl font-black text-slate-800">
-            {t('Log out?', 'Keluar dari akun?')}
-          </h2>
+          <div className="flex items-center gap-2.5">
+            <LogOut aria-hidden="true" className="h-5 w-5 shrink-0 text-rose-600" />
+            <h2 id="logout-dialog-title" className="text-xl font-black text-slate-800">
+              {t('Log out?', 'Keluar dari akun?')}
+            </h2>
+          </div>
           <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-500">
             {t('You will be signed out of this account on this device.', 'Kamu akan keluar dari akun ini di perangkat ini.')}
           </p>
@@ -80,6 +85,7 @@ export default function LogoutConfirmDialog({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   )
 }
