@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Check, FileText, Gamepad2, Sparkles, Swords, Gift } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 
-export type NodeType = 'lesson' | 'quiz' | 'summary' | 'exam' | 'chest' | 'material' | 'boss' | 'ai-checkpoint'
+export type NodeType = 'lesson' | 'quiz' | 'treasure' | 'summary' | 'exam' | 'chest' | 'material' | 'boss' | 'ai-checkpoint'
 
 export type RoadmapNode = {
   id: string
@@ -31,11 +31,12 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
   const nodeConfig: Record<string, any> = {
     lesson: { label: t('LESSON', 'PELAJARAN'), icon: FileText, bg: 'bg-[#0095FF]', text: 'text-[#0095FF]' },
     quiz: { label: t('QUIZ', 'KUIS'), icon: Gamepad2, bg: 'bg-[#A359FF]', text: 'text-[#A359FF]' },
+    treasure: { label: t('TREASURE', 'HARTA'), icon: Gift, bg: 'bg-amber-500', text: 'text-amber-600' },
+    boss: { label: t('FINAL BOSS', 'BOS AKHIR'), icon: Swords, bg: 'bg-rose-600', text: 'text-rose-600' },
     summary: { label: t('SUMMARY', 'RINGKASAN'), icon: Sparkles, bg: 'bg-[#0EA5E9]', text: 'text-[#0EA5E9]' },
     exam: { label: t('FINAL CHALLENGE', 'TANTANGAN AKHIR'), icon: Swords, bg: 'bg-[#FF4B55]', text: 'text-[#FF4B55]' },
     chest: { label: t('REWARD', 'HADIAH'), icon: Gift, bg: 'bg-[#F59E0B]', text: 'text-[#F59E0B]' },
     material: { label: t('LESSON', 'PELAJARAN'), icon: FileText, bg: 'bg-[#0095FF]', text: 'text-[#0095FF]' },
-    boss: { label: t('FINAL CHALLENGE', 'TANTANGAN AKHIR'), icon: Swords, bg: 'bg-[#FF4B55]', text: 'text-[#FF4B55]' },
     'ai-checkpoint': { label: t('QUIZ', 'KUIS'), icon: Gamepad2, bg: 'bg-[#A359FF]', text: 'text-[#A359FF]' }
   }
 
@@ -47,8 +48,8 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
         const isCompleted = node.status === 'completed'
         const isLocked = node.status === 'locked'
         const isClickable = !isLocked && chapterId
-        
-        const config = nodeConfig[node.type] || nodeConfig.lesson
+        const isFinalBoss = node.type === 'boss'
+        const config = isFinalBoss ? nodeConfig.boss : nodeConfig[node.type] || nodeConfig.lesson
         const NodeIcon = config.icon
 
         const strokeColorClass = isCompleted ? 'text-[#38BDF8]' : 'text-slate-200'
@@ -56,8 +57,10 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
 
         // Extracted inner card content to avoid duplication between Link and div
         const CardContent = () => (
-          <div className={`w-full p-3 sm:p-4 rounded-2xl border-[3px] transition-all duration-200 bg-white ${
-            isLocked ? 'border-slate-200' : 'border-slate-100 shadow-sm hover:shadow-md hover:border-slate-300'
+          <div className={`w-full p-3 sm:p-4 rounded-2xl border-[3px] transition-all duration-200 ${
+            isLocked ? 'border-slate-200 bg-white' : isFinalBoss
+              ? 'border-rose-200 bg-rose-50 shadow-sm hover:shadow-md hover:border-rose-300'
+              : 'border-slate-100 bg-white shadow-sm hover:shadow-md hover:border-slate-300'
           }`}>
             <div className={`flex items-center gap-3 sm:gap-4 text-left w-full ${isLocked ? 'opacity-50 grayscale' : ''}`}>
               <div className="relative shrink-0">
@@ -74,9 +77,11 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
                 <div className={`text-[10px] sm:text-[11px] font-bold uppercase tracking-wide ${config.text}`}>
                   {config.label}
                 </div>
-                <h3 className="font-bold text-[13px] sm:text-[15px] leading-tight text-slate-800 mt-0.5 truncate">
-                  {node.title}
-                </h3>
+                {node.title && (
+                  <h3 className="font-bold text-[13px] sm:text-[15px] leading-tight text-slate-800 mt-0.5 truncate">
+                    {node.title}
+                  </h3>
+                )}
               </div>
             </div>
           </div>
@@ -89,6 +94,7 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
                 {isClickable ? (
                   <Link 
                     href={`/chapter/${chapterId}/node/${node.id}`}
+                    prefetch={false}
                     className="block w-full outline-none focus-visible:ring-4 focus-visible:ring-indigo-500 rounded-2xl"
                   >
                     <CardContent />

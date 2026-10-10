@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useState, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import {
   Flame, Heart, Zap, Trophy, Medal, User, Sparkles,
@@ -9,7 +10,7 @@ import {
 } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
-import { isAppProfile } from '@/src/lib/appProfile'
+import { isProfileIdentityPatch } from '@/src/lib/appProfile'
 import { PRESET_AVATARS } from '@/src/lib/profileAvatars'
 
 export default function ProfilePage() {
@@ -24,16 +25,34 @@ export default function ProfilePage() {
   const [loadingText, setLoadingText] = useState('')
   const [isSaving, setIsSaving] = useState(false)
   const [avatarModalOpen, setAvatarModalOpen] = useState(false)
+  const [portalReady, setPortalReady] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
+
+  useEffect(() => {
+    setPortalReady(true)
+  }, [])
 
   useEffect(() => {
     if (!profile) return
     setName(profile.name ?? '')
     setHandle(profile.handle ?? '')
     setAvatarUrl(profile.avatarUrl)
-  }, [profile?.id, profile?.name, profile?.handle, profile?.avatarUrl])
+  }, [profile?.id])
+
+  useEffect(() => {
+    if (!avatarModalOpen) return
+    const previousOverflow = document.body.style.overflow
+    const previousPaddingRight = document.body.style.paddingRight
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth
+    document.body.style.overflow = 'hidden'
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`
+    return () => {
+      document.body.style.overflow = previousOverflow
+      document.body.style.paddingRight = previousPaddingRight
+    }
+  }, [avatarModalOpen])
 
   const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
     setToast({ visible: true, message, type })
@@ -56,6 +75,13 @@ export default function ProfilePage() {
 
   const handleSaveChanges = async () => {
     if (!profile) return
+    const previousProfile = profile
+    updateProfile({
+      ...previousProfile,
+      name: name.trim(),
+      handle: handle.trim().toLowerCase(),
+      avatarUrl,
+    }, { invalidateLeaderboard: false })
     setIsSaving(true)
     try {
       const response = await fetch('/api/auth/profile', {
@@ -70,15 +96,16 @@ export default function ProfilePage() {
           : t('Could not save your profile.', 'Tidak dapat menyimpan profil.')
         throw new Error(message)
       }
-      if (!isAppProfile(result)) {
+      if (!isProfileIdentityPatch(result)) {
         throw new Error(t('The server returned invalid profile data.', 'Server mengirim data profil yang tidak valid.'))
       }
-      updateProfile(result)
-      setName(result.name ?? '')
+      updateProfile({ ...previousProfile, ...result })
+      setName(result.name)
       setHandle(result.handle ?? '')
       setAvatarUrl(result.avatarUrl)
       showToast(t('Profile updated successfully!', 'Profil berhasil diperbarui!'), 'success')
     } catch (error) {
+      updateProfile(previousProfile, { invalidateLeaderboard: false })
       showToast(error instanceof Error ? error.message : t('Could not save your profile.', 'Tidak dapat menyimpan profil.'), 'error')
     } finally {
       setIsSaving(false)
@@ -119,7 +146,7 @@ export default function ProfilePage() {
 
       setAvatarUrl(data.url)
       setAvatarModalOpen(false)
-      showToast(t('Avatar selected. Save changes to keep it.', 'Avatar dipilih. Simpan perubahan untuk menyimpannya.'), 'success')
+      showToast(t('Avatar selected. Save to apply.', 'Avatar dipilih. Simpan untuk menerapkan.'), 'success')
 
     } catch (error) {
       showToast(t('Error connecting to server. Please try again.', 'Gagal terhubung ke server. Coba lagi.'), 'error')
@@ -323,31 +350,36 @@ export default function ProfilePage() {
         </div>
       </section>
 
-      {avatarModalOpen && (
-        <div className="fixed inset-0 z-[60] bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-slate-100 space-y-6">
+      {avatarModalOpen && portalReady && createPortal(
+        <div className="fixed inset-0 z-[9999] grid place-items-center overflow-y-auto bg-slate-900/50 p-3 backdrop-blur-sm sm:p-6">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="avatar-dialog-title"
+            className="max-h-[calc(100dvh-1.5rem)] w-full max-w-[22rem] space-y-4 overflow-y-auto overscroll-contain rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl sm:max-h-[calc(100dvh-3rem)] sm:p-5"
+          >
             <div className="text-center">
-              <h2 className="text-xl font-black text-slate-800">{t('Choose an Avatar', 'Pilih Avatar')}</h2>
-              <p className="text-xs font-semibold text-slate-500 mt-1">
+              <h2 id="avatar-dialog-title" className="text-lg font-black text-slate-800">{t('Choose an Avatar', 'Pilih Avatar')}</h2>
+              <p className="mt-1 text-xs font-semibold text-slate-500">
                 {t('Pick a preset or upload your own.', 'Pilih preset atau unggah fotomu.')}
               </p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-3">
               {PRESET_AVATARS.map((url, idx) => (
                 <button
                   key={idx}
                   onClick={() => {
                     setAvatarUrl(url)
                     setAvatarModalOpen(false)
-                    showToast(t('Avatar selected. Save changes to keep it.', 'Avatar dipilih. Simpan perubahan untuk menyimpannya.'), 'success')
+                    showToast(t('Avatar selected. Save to apply.', 'Avatar dipilih. Simpan untuk menerapkan.'), 'success')
                   }}
-                  className="aspect-square bg-slate-50 rounded-2xl border-2 border-slate-100 hover:border-indigo-400 hover:bg-indigo-50 transition p-2"
+                  className="flex h-24 items-center justify-center rounded-2xl border-2 border-slate-100 bg-slate-50 p-2 transition hover:border-indigo-400 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100 sm:h-28"
                 >
                   <img src={url} alt={`Preset ${idx}`} className="w-full h-full object-contain" />
                 </button>
               ))}
             </div>
-            <div className="relative flex items-center py-2">
+            <div className="relative flex items-center py-1">
               <div className="flex-grow border-t border-slate-200"></div>
               <span className="flex-shrink-0 mx-4 text-slate-400 text-xs font-bold uppercase">{t('OR', 'ATAU')}</span>
               <div className="flex-grow border-t border-slate-200"></div>
@@ -357,44 +389,48 @@ export default function ProfilePage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
-                className="w-full py-4 bg-slate-100 border-2 border-slate-200 rounded-2xl font-extrabold text-slate-700 hover:bg-slate-200 transition flex items-center justify-center gap-2 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-slate-200 bg-slate-100 py-3 font-extrabold text-slate-700 transition hover:bg-slate-200 disabled:opacity-50"
               >
                 {isUploading ? <div className="w-5 h-5 border-2 border-slate-700 border-t-transparent rounded-full animate-spin"></div> : <Upload className="w-5 h-5" />}
                 {isUploading ? loadingText : t('Upload Custom Photo', 'Unggah Foto')}
               </button>
             </div>
-            <button onClick={() => setAvatarModalOpen(false)} className="w-full py-3 rounded-2xl font-extrabold text-xs text-slate-500 hover:text-slate-700 transition">
+            <button onClick={() => setAvatarModalOpen(false)} className="w-full rounded-xl py-2 font-extrabold text-xs text-slate-500 transition hover:bg-slate-50 hover:text-slate-700">
               {t('Cancel', 'Batal')}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      <div
-        className={`fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] transition-all duration-300 ease-out transform ${toast.visible
-            ? 'translate-y-0 opacity-100 scale-100'
-            : 'translate-y-8 opacity-0 scale-95 pointer-events-none'
-          }`}
-      >
+      {portalReady && createPortal(
         <div
-          className={`px-6 py-4 rounded-2xl shadow-xl flex items-center gap-3 border-2 ${toast.type === 'success'
-              ? 'profile-toast-success'
-              : toast.type === 'warning'
-                ? 'profile-toast-warning'
-                : 'profile-toast-error'
+          className={`fixed bottom-6 left-1/2 w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 z-[10000] transition-all duration-300 ease-out transform ${toast.visible
+              ? 'translate-y-0 opacity-100 scale-100'
+              : 'translate-y-8 opacity-0 scale-95 pointer-events-none'
             }`}
         >
-          {toast.type === 'success' ? (
-            <CheckCircle2 className="w-6 h-6" />
-          ) : (
-            <AlertCircle className="w-6 h-6" />
-          )}
+          <div
+            className={`px-4 py-3 sm:px-6 sm:py-4 rounded-2xl shadow-xl flex items-center gap-3 border-2 ${toast.type === 'success'
+                ? 'profile-toast-success'
+                : toast.type === 'warning'
+                  ? 'profile-toast-warning'
+                  : 'profile-toast-error'
+              }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="w-6 h-6" />
+            ) : (
+              <AlertCircle className="w-6 h-6" />
+            )}
 
-          <span className="font-extrabold text-sm">
-            {toast.message}
-          </span>
-        </div>
-      </div>
+            <span className="min-w-0 font-extrabold text-sm break-words">
+              {toast.message}
+            </span>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }

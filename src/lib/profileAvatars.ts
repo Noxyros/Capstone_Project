@@ -21,7 +21,7 @@ export function isAllowedAvatarUrl(value: string, userId: string): boolean {
     return avatarUrl.origin === storageOrigin
       && !avatarUrl.search
       && !avatarUrl.hash
-      && /^[a-f0-9-]{36}\.(?:jpg|png|webp)$/i.test(fileName)
+      && /^(?:[a-f0-9-]{36}|[a-f0-9]{64})\.(?:jpg|png|webp)$/i.test(fileName)
   } catch {
     return false
   }

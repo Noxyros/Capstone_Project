@@ -1,0 +1,1 @@
+ALTER TYPE "RoadmapNodeType" ADD VALUE 'BOSS';

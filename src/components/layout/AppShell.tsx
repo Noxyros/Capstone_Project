@@ -8,12 +8,19 @@ import RightRail from '@/src/components/layout/RightRail'
 import AppLoadingScreen from '@/src/components/shared/AppLoadingScreen'
 import { useAuth } from '@/src/context/AuthContext'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { loadCurriculum } from '@/src/lib/curriculumClient'
+import { loadLeaderboard } from '@/src/lib/leaderboardClient'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { state, error, refreshProfile } = useAuth()
+  const { state, error, refreshProfile, user } = useAuth()
   const { t } = useLanguage()
   const [startupDelayElapsed, setStartupDelayElapsed] = useState(false)
+  const [preloadState, setPreloadState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
+  const [preloadedUserId, setPreloadedUserId] = useState<string | null>(null)
+  const [preloadErrorUserId, setPreloadErrorUserId] = useState<string | null>(null)
+  const [preloadError, setPreloadError] = useState('')
+  const [preloadRetry, setPreloadRetry] = useState(0)
   const isNodeActivity = /^\/chapter\/[^/]+\/node\/[^/]+$/.test(pathname)
   const learnerStats = state === 'signed_in'
     ? <StatsPanel />
@@ -41,8 +48,55 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.clearTimeout(timeoutId)
   }, [])
 
-  if (state === 'loading' || !startupDelayElapsed) {
-    return <main className="min-h-dvh"><AppLoadingScreen /></main>
+  useEffect(() => {
+    if (state !== 'signed_in' || !user?.id) {
+      setPreloadState('idle')
+      setPreloadedUserId(null)
+      setPreloadErrorUserId(null)
+      setPreloadError('')
+      return
+    }
+
+    let active = true
+    setPreloadState('loading')
+    setPreloadedUserId(null)
+    setPreloadErrorUserId(null)
+    setPreloadError('')
+    void Promise.all([
+      loadCurriculum(undefined, user.id),
+      loadLeaderboard(user.id),
+    ]).then(() => {
+      if (active) {
+        setPreloadedUserId(user.id)
+        setPreloadState('ready')
+      }
+    }).catch((preloadFailure: unknown) => {
+      console.error('Failed to prepare learner subjects and leaderboard.', preloadFailure)
+      if (active) {
+        setPreloadErrorUserId(user.id)
+        setPreloadError(preloadFailure instanceof Error
+          ? preloadFailure.message
+          : 'Could not load learner data.')
+        setPreloadState('error')
+      }
+    })
+    return () => { active = false }
+  }, [preloadRetry, state, user?.id])
+
+  const waitingForLearnerData = state === 'signed_in'
+    && (preloadState !== 'ready' || preloadedUserId !== user?.id)
+  const currentPreloadError = preloadState === 'error' && preloadErrorUserId === user?.id
+    ? preloadError
+    : undefined
+  if (state === 'loading' || !startupDelayElapsed || waitingForLearnerData) {
+    return (
+      <main className="min-h-dvh">
+        <AppLoadingScreen
+          error={currentPreloadError}
+          onRetry={currentPreloadError ? () => setPreloadRetry((attempt) => attempt + 1) : undefined}
+        />
+      </main>
+    )
   }
 
   if (pathname === '/login' || pathname.startsWith('/auth/')) {
@@ -66,7 +120,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </aside>
 
-        <main className="app-screen-pop min-w-0 flex-1 p-4 pb-24 sm:p-6 lg:p-8 lg:pb-8">
+        <main className="app-screen-enter min-w-0 flex-1 p-4 pb-24 sm:p-6 lg:p-8 lg:pb-8">
           {children}
         </main>
 

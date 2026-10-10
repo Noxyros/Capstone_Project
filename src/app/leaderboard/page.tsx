@@ -88,7 +88,9 @@ export default function LeaderboardPage() {
             {t('Leaderboard', 'Papan Peringkat')}
           </h1>
         </div>
-        <p className="text-sm font-semibold text-slate-500">{t('Weekly XP', 'XP Mingguan')}</p>
+        <p className="text-sm sm:text-base font-semibold text-slate-500 leading-relaxed max-w-xl">
+          {t('Weekly XP · resets on Monday.', 'XP Mingguan · direset pada hari Senin.')}
+        </p>
       </div>
 
       <div className="bg-white border-2 border-b-4 sm:border-b-[6px] border-slate-200 rounded-2xl sm:rounded-3xl overflow-hidden">

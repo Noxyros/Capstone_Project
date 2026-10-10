@@ -22,6 +22,7 @@ type TutorContext =
     title: string
     content: string
     mediaNote: string
+    media?: { type: 'image'; url: string } | { type: 'pdf'; text: string }
   }
 
 type TutorMessage = {
@@ -432,8 +433,8 @@ export function LearningTutor({ context }: { context: TutorContext }) {
           <p className="space-y-1 px-4 pb-3 text-xs font-medium leading-relaxed text-slate-400 sm:px-5">
             <span className="block">
               {t(
-                'Messages and lesson text are sent to Groq. Don’t share personal information.',
-                'Pesan dan teks materi dikirim ke Groq. Jangan bagikan informasi pribadi.'
+                'Messages and lesson text, images, or selectable PDF text are sent to Groq. Don’t share personal information.',
+                'Pesan serta teks, gambar, atau teks PDF yang dapat dipilih dikirim ke Groq. Jangan bagikan informasi pribadi.'
               )}
             </span>
             <span className="block">

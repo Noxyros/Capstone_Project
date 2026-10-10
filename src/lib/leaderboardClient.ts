@@ -81,6 +81,11 @@ export function invalidateLeaderboardCache(authUserId?: string): void {
   }
 }
 
+export function markLeaderboardCacheStale(authUserId: string): void {
+  const cached = memoryCache.get(authUserId)
+  if (cached) memoryCache.set(authUserId, { ...cached, fetchedAt: 0 })
+}
+
 export async function loadLeaderboard(authUserId: string): Promise<LeaderboardData> {
   const cached = memoryCache.get(authUserId)
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) return cached.data

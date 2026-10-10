@@ -5,6 +5,7 @@ import { createClient } from '@/src/lib/supabase/server'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import { isAllowedAvatarUrl } from '@/src/lib/profileAvatars'
 import { getAppProfile } from '@/src/lib/gameEconomy'
+import type { ProfileIdentityPatch } from '@/src/lib/appProfile'
 
 async function chooseUsername(suggested: string): Promise<string> {
   const base = suggested
@@ -142,9 +143,14 @@ export async function PATCH(request: Request) {
         handle,
         avatarUrl: body.avatarUrl,
       },
-      select: { id: true },
+      select: { name: true, handle: true, avatarUrl: true },
     })
-    return NextResponse.json(await getAppProfile(profile.id))
+    const profilePatch: ProfileIdentityPatch = {
+      name: profile.name ?? '',
+      handle: profile.handle ?? '',
+      avatarUrl: profile.avatarUrl,
+    }
+    return NextResponse.json(profilePatch, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (
       typeof error === 'object'

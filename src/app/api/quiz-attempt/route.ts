@@ -22,7 +22,12 @@ export async function POST(request: Request) {
   try {
     const [node, user] = await Promise.all([
       prisma.roadmapNode.findFirst({
-        where: { id: body.nodeId, type: RoadmapNodeType.QUIZ, isPublished: true, chapter: { isPublished: true } },
+        where: {
+          id: body.nodeId,
+          type: { in: [RoadmapNodeType.QUIZ, RoadmapNodeType.BOSS] },
+          isPublished: true,
+          chapter: { isPublished: true },
+        },
         select: { id: true },
       }),
       prisma.user.findUnique({

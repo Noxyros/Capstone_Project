@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
+import { createHash } from 'node:crypto'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -130,12 +131,13 @@ export async function POST(req: Request) {
       process.env.SUPABASE_SERVICE_ROLE_KEY
     )
     const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp'
-    const fileName = `${authentication.appUser.id}/${crypto.randomUUID()}.${extension}`
+    const contentHash = createHash('sha256').update(buffer).digest('hex')
+    const fileName = `${authentication.appUser.id}/${contentHash}.${extension}`
     const { data: uploadData, error: uploadError } = await supabase.storage
       .from('avatars')
       .upload(fileName, buffer, {
         contentType: file.type,
-        upsert: false,
+        upsert: true,
       })
 
     if (uploadError) throw uploadError
