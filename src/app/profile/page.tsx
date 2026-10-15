@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   Flame, TrendingUp, Zap, Trophy, Medal, User, Sparkles,
   Pencil, AtSign, Upload, CheckCircle2, AlertCircle,
-  Settings
+  Settings, BookOpen, Gem, ChevronDown
 } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
@@ -29,6 +29,7 @@ export default function ProfilePage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const [toast, setToast] = useState({ visible: false, message: '', type: 'success' })
+  const [showAllAchievements, setShowAllAchievements] = useState(false)
 
   useEffect(() => {
     setPortalReady(true)
@@ -247,19 +248,19 @@ export default function ProfilePage() {
           <User className="w-6 h-6 text-slate-400" /> {t('Statistics', 'Statistik')}
         </h2>
         <div className="grid grid-cols-2 gap-2 sm:gap-4">
-          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-amber-500 border-b-amber-600 bg-amber-400 p-3 transition-colors hover:bg-amber-500 sm:gap-4 sm:border-slate-200 sm:border-b-slate-200 sm:bg-white sm:p-5 sm:hover:bg-slate-50">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200/50 bg-amber-300/50 sm:h-12 sm:w-12 sm:rounded-2xl sm:border-orange-200 sm:bg-orange-100">
-              <Flame className="h-4 w-4 fill-white text-white sm:h-6 sm:w-6 sm:fill-orange-500 sm:text-orange-500" />
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5 shadow-sm">
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-orange-400 to-orange-500 border-b-[3px] border-orange-600 shadow-md shadow-orange-500/25">
+              <Flame className="h-5 w-5 sm:h-6 sm:w-6 fill-white text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-xl font-extrabold leading-none text-white sm:text-2xl sm:text-slate-700">{profile?.streak ?? '—'}</h3>
-              <p className="mt-1 uppercase tracking-wide text-[10px] font-bold text-amber-50 sm:mt-1.5 sm:text-xs sm:text-slate-400">{t('Day streak', 'Hari streak')}</p>
+              <h3 className="text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">{profile?.streak ?? '—'}</h3>
+              <p className="mt-1 uppercase tracking-wide text-[10px] font-bold text-slate-400 sm:mt-1.5 sm:text-xs">{t('Day streak', 'Hari streak')}</p>
             </div>
           </div>
 
-          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-sky-200 bg-sky-100 sm:h-12 sm:w-12 sm:rounded-2xl">
-              <Zap className="h-4 w-4 fill-sky-500 text-sky-500 sm:h-6 sm:w-6" />
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5 shadow-sm">
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-sky-400 to-sky-500 border-b-[3px] border-sky-600 shadow-md shadow-sky-500/25">
+              <Zap className="h-5 w-5 sm:h-6 sm:w-6 fill-white text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]" />
             </div>
             <div className="min-w-0">
               <h3 className="text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">{profile?.totalXp ?? '—'}</h3>
@@ -267,9 +268,9 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          <Link href="/leaderboard" className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200 bg-amber-100 sm:h-12 sm:w-12 sm:rounded-2xl">
-              <Trophy className="h-4 w-4 text-amber-500 sm:h-6 sm:w-6" />
+          <Link href="/leaderboard" className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5 shadow-sm">
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-amber-400 to-amber-500 border-b-[3px] border-amber-600 shadow-md shadow-amber-500/25">
+              <Trophy className="h-5 w-5 sm:h-6 sm:w-6 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]" />
             </div>
             <div className="min-w-0">
               <h3 className="truncate text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">
@@ -279,9 +280,9 @@ export default function ProfilePage() {
             </div>
           </Link>
 
-          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-sky-200 bg-sky-100 sm:h-12 sm:w-12 sm:rounded-2xl">
-              <TrendingUp className="h-4 w-4 text-emerald-600 sm:h-6 sm:w-6" />
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5 shadow-sm">
+            <div className="flex h-10 w-10 sm:h-12 sm:w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-b from-emerald-400 to-emerald-500 border-b-[3px] border-emerald-600 shadow-md shadow-emerald-500/25">
+              <TrendingUp className="h-5 w-5 sm:h-6 sm:w-6 text-white stroke-[2.5] drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]" />
             </div>
             <div className="min-w-0">
               <h3 className="text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">{profile?.weeklyXp ?? '—'}</h3>
@@ -295,59 +296,184 @@ export default function ProfilePage() {
         <h2 className="text-xl font-extrabold text-slate-700 mb-5 flex items-center gap-2.5 px-1">
           <Medal className="w-6 h-6 text-slate-400" /> {t('Achievements', 'Pencapaian')}
         </h2>
-        <div className="space-y-4">
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-5 flex items-center gap-5">
-            <div className="w-16 h-16 rounded-3xl bg-orange-100 border-2 border-orange-200 flex items-center justify-center shrink-0 shadow-inner">
-              <Flame className="w-8 h-8 text-orange-500 fill-orange-500" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="font-extrabold text-slate-700 text-lg">{t('Wildfire', 'Api Liar')}</h3>
-                <span className="text-sm font-extrabold text-slate-400">6/7</span>
-              </div>
-              <p className="text-sm font-semibold text-slate-500 mb-4">{t('Reach a 7 day streak', 'Capai streak 7 hari')}</p>
-              <div className="h-3.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
-                <div className="h-full w-[85%] bg-amber-400 rounded-full relative overflow-hidden">
-                  <div className="absolute inset-0 bg-white/20 w-full h-1/3 rounded-t-full"></div>
-                </div>
-              </div>
-            </div>
-          </div>
 
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-5 flex items-center gap-5">
-            <div className="w-16 h-16 rounded-3xl bg-sky-100 border-2 border-sky-200 flex items-center justify-center shrink-0 shadow-inner">
-              <Sparkles className="w-8 h-8 text-sky-500" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="font-extrabold text-slate-700 text-lg">{t('Flawless Victory', 'Kemenangan Sempurna')}</h3>
-                <span className="text-sm font-extrabold text-slate-400">2/5</span>
-              </div>
-              <p className="text-sm font-semibold text-slate-500 mb-4">{t('Perfect score in 5 modules', 'Skor sempurna di 5 modul')}</p>
-              <div className="h-3.5 w-full bg-slate-100 rounded-full overflow-hidden border border-slate-200/50">
-                <div className="h-full w-[40%] bg-sky-400 rounded-full relative overflow-hidden">
-                  <div className="absolute inset-0 bg-white/20 w-full h-1/3 rounded-t-full"></div>
-                </div>
-              </div>
-            </div>
-          </div>
+        {(() => {
+          const streak = profile?.streak ?? 0
+          const perfectQuizzes = profile?.perfectQuizzesCount ?? 0
+          const completedNodes = profile?.completedNodesCount ?? 0
+          const totalXp = profile?.totalXp ?? 0
+          const gems = profile?.gems ?? 0
+          const activeDays = profile?.activityDates?.length ?? 0
+          const rank = profile?.rank ?? 999
 
-          <div className="bg-slate-50 border-2 border-b-4 border-slate-200 rounded-2xl p-5 flex items-center gap-5 opacity-75 grayscale-[0.3]">
-            <div className="w-16 h-16 rounded-3xl bg-slate-200 border-2 border-slate-300 flex items-center justify-center shrink-0">
-              <Trophy className="w-8 h-8 text-slate-400" />
+          const achievements = [
+            {
+              id: 'wildfire',
+              title: t('Wildfire', 'Api Liar'),
+              desc: t('Reach a 7 day streak', 'Capai streak 7 hari'),
+              icon: Flame,
+              current: streak,
+              max: 7,
+              tokenClass: 'bg-gradient-to-b from-orange-400 to-orange-500 border-b-[3px] border-orange-600 shadow-md shadow-orange-500/25',
+              iconClass: 'fill-white text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-amber-400',
+            },
+            {
+              id: 'flawless',
+              title: t('Flawless Victory', 'Kemenangan Sempurna'),
+              desc: t('Perfect score on 5 quizzes', 'Skor sempurna di 5 kuis'),
+              icon: Sparkles,
+              current: perfectQuizzes,
+              max: 5,
+              tokenClass: 'bg-gradient-to-b from-sky-400 to-sky-500 border-b-[3px] border-sky-600 shadow-md shadow-sky-500/25',
+              iconClass: 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-sky-400',
+            },
+            {
+              id: 'scholar',
+              title: t('Scholar', 'Cendekiawan'),
+              desc: t('Complete 10 lesson steps', 'Selesaikan 10 langkah materi'),
+              icon: BookOpen,
+              current: completedNodes,
+              max: 10,
+              tokenClass: 'bg-gradient-to-b from-emerald-400 to-emerald-500 border-b-[3px] border-emerald-600 shadow-md shadow-emerald-500/25',
+              iconClass: 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-emerald-400',
+            },
+            {
+              id: 'contender',
+              title: t('Top Contender', 'Penantang Teratas'),
+              desc: t('Reach Rank #1 on the leaderboard', 'Raih Peringkat #1 di papan peringkat'),
+              icon: Trophy,
+              current: rank === 1 ? 1 : 0,
+              max: 1,
+              tokenClass: 'bg-gradient-to-b from-amber-400 to-amber-500 border-b-[3px] border-amber-600 shadow-md shadow-amber-500/25',
+              iconClass: 'fill-white text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-amber-400',
+            },
+            {
+              id: 'xp_titan',
+              title: t('XP Titan', 'Titan XP'),
+              desc: t('Earn 500 total XP', 'Dapatkan total 500 XP'),
+              icon: Zap,
+              current: totalXp,
+              max: 500,
+              tokenClass: 'bg-gradient-to-b from-indigo-400 to-indigo-500 border-b-[3px] border-indigo-600 shadow-md shadow-indigo-500/25',
+              iconClass: 'fill-white text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-indigo-500',
+            },
+            {
+              id: 'gem_hoarder',
+              title: t('Gem Hoarder', 'Penimbun Permata'),
+              desc: t('Collect 300 gems', 'Kumpulkan 300 permata'),
+              icon: Gem,
+              current: gems,
+              max: 300,
+              tokenClass: 'bg-gradient-to-b from-teal-400 to-teal-500 border-b-[3px] border-teal-600 shadow-md shadow-teal-500/25',
+              iconClass: 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-teal-400',
+            },
+            {
+              id: 'habit_builder',
+              title: t('Habit Builder', 'Pembangun Kebiasaan'),
+              desc: t('Study on 7 different days', 'Belajar di 7 hari berbeda'),
+              icon: Medal,
+              current: activeDays,
+              max: 7,
+              tokenClass: 'bg-gradient-to-b from-purple-400 to-purple-500 border-b-[3px] border-purple-600 shadow-md shadow-purple-500/25',
+              iconClass: 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
+              barColor: 'bg-purple-400',
+            },
+          ]
+
+          const visibleAchievements = showAllAchievements ? achievements : achievements.slice(0, 3)
+
+          return (
+            <div className="space-y-4">
+              {visibleAchievements.map((item) => {
+                const IconComponent = item.icon
+                const isLocked = item.current === 0
+                const progressPercent = Math.min(100, Math.round((Math.max(0, item.current) / item.max) * 100))
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`border-2 border-b-4 border-slate-200 rounded-2xl p-5 flex items-center gap-5 transition-all ${
+                      isLocked
+                        ? 'bg-slate-50 opacity-80 grayscale-[0.25]'
+                        : 'bg-white'
+                    }`}
+                  >
+                    <div
+                      className={`w-14 h-14 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center shrink-0 transition-transform ${
+                        isLocked
+                          ? 'bg-slate-200 border-b-[3px] border-slate-300 dark:bg-slate-800 dark:border-slate-900'
+                          : item.tokenClass
+                      }`}
+                    >
+                      <IconComponent
+                        className={`w-7 h-7 sm:w-8 sm:h-8 ${
+                          isLocked ? 'text-slate-400 dark:text-slate-500' : item.iconClass
+                        }`}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1.5 gap-2">
+                        <h3 className={`font-extrabold text-lg truncate ${isLocked ? 'text-slate-500' : 'text-slate-700'}`}>
+                          {item.title}
+                        </h3>
+                        <span className="text-sm font-extrabold text-slate-400 shrink-0">
+                          {Math.min(item.current, item.max)}/{item.max}
+                        </span>
+                      </div>
+                      <p className="text-sm font-semibold text-slate-500 mb-4 line-clamp-1">
+                        {item.desc}
+                      </p>
+                      <div className={`h-3.5 w-full rounded-full overflow-hidden border ${
+                        isLocked
+                          ? 'bg-slate-200 border-slate-300/50'
+                          : 'bg-slate-100 border-slate-200/50'
+                      }`}>
+                        <div
+                          className={`h-full ${item.barColor} rounded-full relative overflow-hidden transition-all duration-500`}
+                          style={{ width: `${progressPercent}%` }}
+                        >
+                          {progressPercent > 0 && (
+                            <div className="absolute inset-0 bg-white/20 w-full h-1/3 rounded-t-full" />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {achievements.length > 3 && (
+                <div className="pt-2 flex justify-center">
+                  <button
+                    type="button"
+                    onClick={() => setShowAllAchievements((prev) => !prev)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl border-2 border-b-4 border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-extrabold text-sm transition-all active:border-b-2 active:translate-y-0.5"
+                  >
+                    <span>
+                      {showAllAchievements
+                        ? t('Show Less', 'Tampilkan Lebih Sedikit')
+                        : t(
+                            `View All (${achievements.length}) Achievements`,
+                            `Lihat Semua (${achievements.length}) Pencapaian`
+                          )}
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${
+                        showAllAchievements ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between mb-1.5">
-                <h3 className="font-extrabold text-slate-500 text-lg">{t('Top Contender', 'Penantang Teratas')}</h3>
-                <span className="text-sm font-extrabold text-slate-400">0/1</span>
-              </div>
-              <p className="text-sm font-semibold text-slate-400 mb-4">{t('Reach Rank #1 on the leaderboard', 'Raih Peringkat #1 di papan peringkat')}</p>
-              <div className="h-3.5 w-full bg-slate-200 rounded-full overflow-hidden border border-slate-300/50">
-                <div className="h-full w-0 bg-amber-400 rounded-full" />
-              </div>
-            </div>
-          </div>
-        </div>
+          )
+        })()}
       </section>
 
       {avatarModalOpen && portalReady && createPortal(

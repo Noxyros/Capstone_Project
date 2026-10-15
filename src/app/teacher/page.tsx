@@ -269,20 +269,24 @@ export default function TeacherPage() {
   const [generatedDraft, setGeneratedDraft] = useState<{ subjectId: string; draft: GeneratedChapterDraft } | null>(null)
   const [curriculumReady, setCurriculumReady] = useState(cachedSubjects !== null)
   const [isSaving, setIsSaving] = useState(false)
-  const [error, setError] = useState('')
   const [portalReady, setPortalReady] = useState(false)
-  const [toast, setToast] = useState({ visible: false, message: '' })
+  const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
+    visible: false,
+    message: '',
+    type: 'success',
+  })
   const materialFileInputRef = useRef<HTMLInputElement>(null)
+
+  const showToast = (message: string, type: 'success' | 'error' | 'warning' = 'success') => {
+    setToast({ visible: true, message, type })
+    window.setTimeout(() => {
+      setToast((prev) => ({ ...prev, visible: false }))
+    }, 3500)
+  }
 
   useEffect(() => {
     setPortalReady(true)
   }, [])
-
-  useEffect(() => {
-    if (!toast.visible) return
-    const timeoutId = window.setTimeout(() => setToast((current) => ({ ...current, visible: false })), 3500)
-    return () => window.clearTimeout(timeoutId)
-  }, [toast.message, toast.visible])
 
   useEffect(() => {
     let active = true
@@ -313,9 +317,9 @@ export default function TeacherPage() {
       })
       .catch((loadError) => {
         console.error('Failed to load teacher curriculum.', loadError)
-        if (active) setError(loadError instanceof Error
+        if (active) showToast(loadError instanceof Error
           ? loadError.message
-          : 'Could not load your curriculum.')
+          : 'Could not load your curriculum.', 'error')
       })
       .finally(() => {
         if (active) setCurriculumReady(true)
@@ -340,7 +344,6 @@ export default function TeacherPage() {
 
   const updateDraft = (next: CurriculumSubject[]) => {
     setSubjects(next)
-    setError('')
   }
 
   const saveChanges = async () => {
@@ -349,10 +352,7 @@ export default function TeacherPage() {
       const gradeDraft = gradeDrafts[subject.id] ?? (subject.grade === 0 ? '' : String(subject.grade))
       return !/^\d+$/.test(gradeDraft) || Number(gradeDraft) < 1 || Number(gradeDraft) > 12
     })) {
-      setToast({
-        visible: true,
-        message: t('Each subject grade must be a whole number between 1 and 12.', 'Kelas setiap mata pelajaran harus berupa angka bulat antara 1 dan 12.'),
-      })
+      showToast(t('Each subject grade must be a whole number between 1 and 12.', 'Kelas setiap mata pelajaran harus berupa angka bulat antara 1 dan 12.'), 'warning')
       return
     }
     setIsSaving(true)
@@ -360,10 +360,10 @@ export default function TeacherPage() {
       await saveCurriculum(subjects)
       setSavedSubjects(subjects)
       setGradeDrafts({})
-      setError('')
+      showToast(t('Curriculum saved successfully!', 'Kurikulum berhasil disimpan!'), 'success')
     } catch (saveError) {
       console.error('Failed to save curriculum changes.', saveError)
-      setError(getSaveErrorMessage(saveError, t))
+      showToast(getSaveErrorMessage(saveError, t), 'error')
     } finally {
       setIsSaving(false)
     }
@@ -660,12 +660,6 @@ export default function TeacherPage() {
           </p>
         </div>
       </header>
-
-      {error && (
-        <div role="alert" className="flex items-center gap-2 rounded-2xl border-2 border-rose-200 bg-rose-50 p-4 font-bold text-rose-700">
-          <AlertCircle className="h-5 w-5 shrink-0" /> {error}
-        </div>
-      )}
 
       <div className="space-y-4">
         <section className="overflow-hidden rounded-3xl border-2 border-indigo-100 bg-white shadow-sm">
@@ -1163,19 +1157,31 @@ export default function TeacherPage() {
           {isSaving ? t('Saving…', 'Menyimpan…') : hasUnsavedChanges ? t('Save changes', 'Simpan perubahan') : t('Saved', 'Tersimpan')}
         </button>
       </div>
-      {portalReady && createPortal(
+      {toast.visible && portalReady && createPortal(
         <div
           role="alert"
           aria-live="assertive"
-          className={`fixed bottom-6 left-1/2 z-[10000] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 transition-all duration-300 ease-out ${
+          className={`fixed bottom-6 left-1/2 z-[10000] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 transition-all duration-300 ease-out transform ${
             toast.visible
-              ? 'translate-y-0 scale-100 opacity-100'
-              : 'pointer-events-none translate-y-8 scale-95 opacity-0'
+              ? 'translate-y-0 opacity-100 scale-100'
+              : 'translate-y-4 opacity-0 scale-95 pointer-events-none'
           }`}
         >
-          <div className="profile-toast-error flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-xl sm:px-6 sm:py-4">
-            <AlertCircle className="h-6 w-6 shrink-0" />
-            <span className="min-w-0 break-words text-sm font-extrabold">{toast.message}</span>
+          <div
+            className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-xl sm:px-6 sm:py-4 ${
+              toast.type === 'success'
+                ? 'profile-toast-success'
+                : toast.type === 'warning'
+                  ? 'profile-toast-warning'
+                  : 'profile-toast-error'
+            }`}
+          >
+            {toast.type === 'success' ? (
+              <CheckCircle2 className="h-6 w-6 shrink-0" />
+            ) : (
+              <AlertCircle className="h-6 w-6 shrink-0" />
+            )}
+            <span className="min-w-0 font-extrabold text-sm break-words">{toast.message}</span>
           </div>
         </div>,
         document.body,
@@ -1554,36 +1560,71 @@ function NodeEditor({
           )}
         </div>
       ) : node.type === 'treasure' ? (
-        <div className="grid gap-4 rounded-2xl border-2 border-amber-200 bg-amber-50/70 p-4 sm:grid-cols-2">
+        <div className="grid gap-4 rounded-2xl border-2 border-slate-200 bg-slate-50/70 p-4 sm:grid-cols-2">
           <label>
             <span className={labelClass}>{t('Treasure reward', 'Hadiah peti')}</span>
             <select
               className={inputClass}
               value={node.rewardCurrency ?? 'xp'}
-              onChange={(event) => updateNode((current) => ({
-                ...current,
-                rewardCurrency: event.target.value as NonNullable<CurriculumNode['rewardCurrency']>,
-              }))}
+              onChange={(event) => {
+                const nextType = event.target.value as 'xp' | 'gems' | 'item'
+                if (nextType === 'item') {
+                  updateNode((current) => ({
+                    ...current,
+                    rewardCurrency: 'item',
+                    content: ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(current.content) ? current.content : 'DOUBLE_XP',
+                    rewardAmount: 1,
+                  }))
+                } else {
+                  updateNode((current) => ({
+                    ...current,
+                    rewardCurrency: nextType,
+                    content: '',
+                    rewardAmount: current.rewardAmount && current.rewardAmount >= 10 ? current.rewardAmount : 50,
+                  }))
+                }
+              }}
             >
               <option value="xp">XP</option>
               <option value="gems">{t('Gems', 'Permata')}</option>
+              <option value="item">{t('Power-up / Item', 'Power-up / Item')}</option>
             </select>
           </label>
-          <label>
-            <span className={labelClass}>{t('Reward amount (10–100,000)', 'Jumlah hadiah (10–100.000)')}</span>
-            <input
-              className={inputClass}
-              type="number"
-              min={10}
-              max={100_000}
-              step={1}
-              value={node.rewardAmount ?? 10}
-              onChange={(event) => updateNode((current) => ({
-                ...current,
-                rewardAmount: Number(event.target.value),
-              }))}
-            />
-          </label>
+
+          {node.rewardCurrency === 'item' ? (
+            <label>
+              <span className={labelClass}>{t('Select power-up', 'Pilih power-up')}</span>
+              <select
+                className={inputClass}
+                value={node.content || 'DOUBLE_XP'}
+                onChange={(event) => updateNode((current) => ({
+                  ...current,
+                  content: event.target.value,
+                  rewardAmount: 1,
+                }))}
+              >
+                <option value="DOUBLE_XP">{t('⚡ Double XP Boost (15 Mins)', '⚡ Bonus 2x XP (15 Menit)')}</option>
+                <option value="STREAK_FREEZE">{t('❄️ Streak Freeze (1x)', '❄️ Pembeku Streak (1x)')}</option>
+                <option value="HEART_REFILL">{t('💖 Full Heart Refill', '💖 Isi Ulang Penuh Nyawa')}</option>
+              </select>
+            </label>
+          ) : (
+            <label>
+              <span className={labelClass}>{t('Reward amount (10–100,000)', 'Jumlah hadiah (10–100.000)')}</span>
+              <input
+                className={inputClass}
+                type="number"
+                min={10}
+                max={100_000}
+                step={1}
+                value={node.rewardAmount ?? 10}
+                onChange={(event) => updateNode((current) => ({
+                  ...current,
+                  rewardAmount: Number(event.target.value),
+                }))}
+              />
+            </label>
+          )}
         </div>
       ) : (
         <div className="space-y-4">

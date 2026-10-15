@@ -22,6 +22,8 @@ interface UserContextType {
   isMutating: boolean
   isSuperModeSaving: boolean
   gameError: string
+  selectedGrade: number
+  setSelectedGrade: (grade: number) => void
   buyPowerUp: (code: PowerUpCode) => Promise<boolean>
   setSuperMode: (enabled: boolean) => Promise<boolean>
   activateHeartSurge: () => Promise<boolean>
@@ -43,6 +45,32 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   const [isMutating, setIsMutating] = useState(false)
   const [isSuperModeSaving, setIsSuperModeSaving] = useState(false)
   const [gameError, setGameError] = useState('')
+  const [selectedGrade, setSelectedGradeState] = useState<number>(() => {
+    if (typeof window === 'undefined') return 7
+    try {
+      const saved = localStorage.getItem('questly_selected_grade')
+      if (saved) {
+        const parsed = Number(saved)
+        if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 12) {
+          return parsed
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return 7
+  })
+
+  const setSelectedGrade = useCallback((nextGrade: number) => {
+    if (!Number.isInteger(nextGrade) || nextGrade < 1 || nextGrade > 12) return
+    setSelectedGradeState(nextGrade)
+    try {
+      localStorage.setItem('questly_selected_grade', String(nextGrade))
+    } catch (error) {
+      console.warn('Could not persist selected grade to localStorage.', error)
+    }
+  }, [])
+
   const actionInFlightRef = useRef(false)
 
   const runAction = useCallback(async (
@@ -201,6 +229,8 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       isMutating,
       isSuperModeSaving,
       gameError,
+      selectedGrade,
+      setSelectedGrade,
       buyPowerUp,
       setSuperMode,
       activateHeartSurge,

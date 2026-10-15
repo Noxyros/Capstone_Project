@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Clock3, Trophy, Zap } from 'lucide-react'
+import { ArrowLeft, Clock3, Trophy, Zap, Target, ShieldCheck, Sparkles } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
 import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
@@ -226,16 +226,88 @@ export default function RapidSprintPage() {
           </button>
         </section>
       ) : !isStarted ? (
-        <section className="rounded-3xl border-2 border-slate-200 bg-white p-6">
-          <h2 className="text-xl font-extrabold text-slate-800">{t('Ready for a quick challenge?', 'Siap untuk tantangan cepat?')}</h2>
-          <p className="mt-2 font-semibold leading-relaxed text-slate-500">
-            {t(
-              'Answer 10 questions before the timer runs out. Earn 30 XP for completing the sprint, once per Jakarta calendar day.',
-              'Jawab 10 soal sebelum waktu habis. Dapatkan 30 XP setelah menyelesaikan tantangan, sekali per hari kalender Jakarta.'
-            )}
-          </p>
-          <button type="button" onClick={() => setIsStarted(true)} className="mt-5 min-h-12 rounded-xl border-b-4 border-amber-800 bg-amber-500 px-5 py-3 font-extrabold text-white hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200">
-            {t('Start sprint', 'Mulai tantangan')}
+        <section className="rounded-3xl border-2 border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+          {/* Header with Title and Description */}
+          <div>
+            <span className="inline-block rounded-lg bg-amber-100 px-3 py-1 text-xs font-black uppercase tracking-wide text-amber-700">
+              {t('Timed Challenge', 'Tantangan Waktu')}
+            </span>
+            <h2 className="mt-2 text-2xl font-black text-slate-800 sm:text-3xl">
+              {t('Ready for a quick challenge?', 'Siap untuk tantangan cepat?')}
+            </h2>
+            <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-500 sm:text-base">
+              {t(
+                'Put your knowledge to the test against the clock. Race through 10 questions to sharpen your speed and claim your daily XP bonus.',
+                'Uji pemahamanmu melawan waktu. Selesaikan 10 soal untuk melatih kecepatan berpikir dan klaim bonus XP harianmu.'
+              )}
+            </p>
+          </div>
+
+          {/* 3 Metric Feature Cards */}
+          <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="flex items-center gap-3.5 rounded-2xl border-2 border-slate-200 bg-slate-50/70 p-4 transition-colors">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200 bg-amber-100 text-amber-600">
+                <Clock3 className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  {t('Time Limit', 'Batas Waktu')}
+                </p>
+                <p className="text-base font-black text-slate-800">
+                  {t('2 Minutes', '2 Menit')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3.5 rounded-2xl border-2 border-slate-200 bg-slate-50/70 p-4 transition-colors">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-indigo-200 bg-indigo-100 text-indigo-600">
+                <Target className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  {t('Questions', 'Jumlah Soal')}
+                </p>
+                <p className="text-base font-black text-slate-800">
+                  {t('10 Questions', '10 Soal')}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3.5 rounded-2xl border-2 border-slate-200 bg-slate-50/70 p-4 transition-colors">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200 bg-amber-100 text-amber-600">
+                <Zap className="h-6 w-6 fill-amber-500 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-wider text-slate-400">
+                  {t('Daily Bonus', 'Bonus Harian')}
+                </p>
+                <p className="text-base font-black text-slate-800">
+                  +30 XP
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Sprint Rules Checklist */}
+          <div className="mt-6 space-y-2.5 rounded-2xl border-2 border-slate-200 bg-slate-50/50 p-4 sm:p-5 text-sm font-semibold text-slate-600">
+            <div className="flex items-center gap-2.5">
+              <ShieldCheck className="h-5 w-5 shrink-0 text-emerald-500" />
+              <span>{t('Zero heart penalty — Practice freely without losing hearts.', 'Bebas penalti nyawa — Berlatihlah tanpa khawatir kehilangan nyawa.')}</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="h-5 w-5 shrink-0 text-amber-500" />
+              <span>{t('Earn 30 XP once per Jakarta calendar day upon completing.', 'Dapatkan 30 XP sekali per hari kalender Jakarta setelah selesai.')}</span>
+            </div>
+          </div>
+
+          {/* Big Duolingo 3D Action Button */}
+          <button
+            type="button"
+            onClick={() => setIsStarted(true)}
+            className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-b-4 border-amber-800 bg-amber-500 hover:bg-amber-600 px-6 py-4 text-lg font-black text-white shadow-lg shadow-amber-500/20 transition-all active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200"
+          >
+            <Zap className="h-5 w-5 fill-current" />
+            {t('Start Rapid Sprint', 'Mulai Tantangan Cepat')}
           </button>
         </section>
       ) : current ? (

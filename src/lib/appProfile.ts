@@ -21,6 +21,8 @@ export interface AppProfile {
   createdAt: string
   rank: number
   activityDates: string[]
+  completedNodesCount?: number
+  perfectQuizzesCount?: number
 }
 
 export interface GameStatePatch {
@@ -92,4 +94,6 @@ export function isAppProfile(value: unknown): value is AppProfile {
     && 'createdAt' in value && typeof value.createdAt === 'string'
     && 'rank' in value && typeof value.rank === 'number'
     && 'activityDates' in value && Array.isArray(value.activityDates) && value.activityDates.every((date) => typeof date === 'string')
+    && (!('completedNodesCount' in value) || typeof value.completedNodesCount === 'number')
+    && (!('perfectQuizzesCount' in value) || typeof value.perfectQuizzesCount === 'number')
 }

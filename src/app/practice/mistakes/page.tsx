@@ -55,6 +55,7 @@ export default function MistakeReviewPage() {
   const [isChecking, setIsChecking] = useState(false)
   const [error, setError] = useState('')
   const [retryCount, setRetryCount] = useState(0)
+  const [resolvedCount, setResolvedCount] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -77,6 +78,7 @@ export default function MistakeReviewPage() {
         setQuestionIndex(0)
         setSelectedOptionIds([])
         setFeedback(null)
+        setResolvedCount(0)
         setStatus('loaded')
       } catch (loadError) {
         if (!controller.signal.aborted) {
@@ -142,7 +144,12 @@ export default function MistakeReviewPage() {
   }
 
   const continueReview = () => {
-    setQuestionIndex((index) => index + 1)
+    if (feedback === 'correct') {
+      setResolvedCount((count) => count + 1)
+      setMistakes((prev) => prev.filter((_, idx) => idx !== questionIndex))
+    } else {
+      setQuestionIndex((index) => index + 1)
+    }
     setSelectedOptionIds([])
     setFeedback(null)
     setError('')
@@ -166,9 +173,12 @@ export default function MistakeReviewPage() {
             <h1 className="text-3xl font-black tracking-tight text-slate-800 sm:text-4xl">
               {t('Mistake Review', 'Perbaikan Kesalahan')}
             </h1>
-            {status === 'loaded' && mistakes.length > 0 && questionIndex < mistakes.length && (
+            {status === 'loaded' && mistakes.length > 0 && current && (
               <p className="mt-1 text-sm font-bold text-slate-500">
-                {t(`Question ${questionIndex + 1} of ${mistakes.length}`, `Soal ${questionIndex + 1} dari ${mistakes.length}`)}
+                {t(
+                  `${mistakes.length} question${mistakes.length > 1 ? 's' : ''} to resolve`,
+                  `${mistakes.length} soal untuk diperbaiki`
+                )}
               </p>
             )}
           </div>
@@ -197,21 +207,27 @@ export default function MistakeReviewPage() {
           <div className="flex items-center gap-3">
             <CheckCircle2 className="h-6 w-6 text-emerald-600" />
             <h2 className="text-lg font-extrabold text-emerald-800">
-              {mistakes.length === 0
-                ? t('No missed questions yet', 'Belum ada soal yang terlewat')
-                : t('Review complete!', 'Latihan selesai!')}
+              {resolvedCount > 0
+                ? t('Review complete!', 'Latihan selesai!')
+                : t('No missed questions yet', 'Belum ada soal yang terlewat')}
             </h2>
           </div>
           <p className="mt-2 font-semibold text-emerald-700">
-            {mistakes.length === 0
-              ? t('Questions you answer incorrectly in a quiz will appear here.', 'Soal yang kamu jawab salah dalam kuis akan muncul di sini.')
-              : t(`You corrected ${mistakes.length} questions. Nice work!`, `Kamu berhasil mengulang ${mistakes.length} soal. Bagus!`)}
+            {resolvedCount > 0
+              ? t(
+                  `You solved all ${resolvedCount} mistake${resolvedCount > 1 ? 's' : ''}! Great job clearing your review queue.`,
+                  `Kamu berhasil menyelesaikan ${resolvedCount} soal yang salah! Bagus sekali, antrean latihanmu sekarang bersih.`
+                )
+              : t('Questions you answer incorrectly in a quiz will appear here.', 'Soal yang kamu jawab salah dalam kuis akan muncul di sini.')}
           </p>
-          {mistakes.length > 0 && (
-            <button type="button" onClick={() => { setQuestionIndex(0); setSelectedOptionIds([]); setFeedback(null) }} className="mt-4 min-h-11 rounded-xl border-2 border-emerald-300 bg-white px-4 font-extrabold text-emerald-700 hover:bg-emerald-100">
-              {t('Review again', 'Ulangi lagi')}
-            </button>
-          )}
+          <div className="mt-5 flex items-center gap-3">
+            <Link
+              href="/practice"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border-b-4 border-emerald-700 bg-emerald-500 px-5 font-black text-white hover:bg-emerald-600"
+            >
+              {t('Back to Practice', 'Kembali ke Latihan')}
+            </Link>
+          </div>
         </div>
       ) : (
         <article className="rounded-3xl border-2 border-slate-200 bg-white p-5 shadow-sm sm:p-7">

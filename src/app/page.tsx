@@ -9,6 +9,7 @@ import SubjectCard from '@/src/components/shared/SubjectCard'
 import { GraduationCap, Plus, Target } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
+import { useUser } from '@/src/context/UserContext'
 import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
 import { localizeSubjectName } from '@/src/lib/curriculumLocalization'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
@@ -25,9 +26,11 @@ import { useJakartaDailyReset } from '@/src/hooks/useJakartaDailyReset'
 export default function HomePage() {
   const { t, language } = useLanguage()
   const { role, user, updateProfile } = useAuth()
+  const { selectedGrade } = useUser()
   const { dateKey: dailyResetDate, secondsRemaining } = useJakartaDailyReset()
   const curriculumScope = user?.id ?? 'public'
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
+  const filteredSubjects = subjects.filter((subject) => subject.grade === selectedGrade)
   const [isCurriculumLoading, setIsCurriculumLoading] = useState(true)
   const [curriculumError, setCurriculumError] = useState('')
   const [curriculumRetry, setCurriculumRetry] = useState(0)
@@ -169,7 +172,12 @@ export default function HomePage() {
       </section>
 
       <section>
-        <h2 className="text-xl font-extrabold text-slate-700 mb-4">{t('Your Subjects', 'Mata Pelajaranmu')}</h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-xl font-extrabold text-slate-700">{t('Your Subjects', 'Mata Pelajaranmu')}</h2>
+          <span className="text-xs font-extrabold text-slate-400 uppercase tracking-wide bg-slate-100 px-3 py-1 rounded-xl">
+            {t(`Grade ${selectedGrade}`, `Kelas ${selectedGrade}`)}
+          </span>
+        </div>
         {curriculumError && (
           <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">
             <span>{curriculumError}</span>
@@ -179,7 +187,7 @@ export default function HomePage() {
           </div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {subjects.map((subject) => {
+          {filteredSubjects.map((subject) => {
             const nodes = subject.chapters.flatMap((chapter) => chapter.nodes)
             const completed = nodes.filter((node) => node.status === 'completed').length
             return (
@@ -197,6 +205,14 @@ export default function HomePage() {
             <p role="status" className="col-span-full rounded-2xl border-2 border-slate-200 bg-white p-6 text-center font-bold text-slate-500">
               {t('Loading your subjects...', 'Memuat mata pelajaranmu...')}
             </p>
+          )}
+          {!isCurriculumLoading && !curriculumError && subjects.length > 0 && filteredSubjects.length === 0 && (
+            <div className="col-span-full rounded-2xl border-2 border-dashed border-slate-200 bg-white p-6 text-center font-bold text-slate-500">
+              <p>{t(`No published subjects are available for Grade ${selectedGrade} yet.`, `Belum ada mata pelajaran yang dipublikasikan untuk Kelas ${selectedGrade}.`)}</p>
+              <p className="mt-1 text-xs font-semibold text-slate-400">
+                {t('Select another grade from the top bar to explore other courses.', 'Pilih kelas lain dari bilah atas untuk melihat materi lainnya.')}
+              </p>
+            </div>
           )}
           {!isCurriculumLoading && !curriculumError && subjects.length === 0 && (
             <p className="col-span-full rounded-2xl border-2 border-dashed border-slate-200 bg-white p-6 text-center font-bold text-slate-500">

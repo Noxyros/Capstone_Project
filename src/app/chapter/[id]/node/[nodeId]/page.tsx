@@ -3,7 +3,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useParams } from 'next/navigation'
-import { CheckCircle2, Gift, Heart, Infinity as InfinityIcon, Swords, X, XCircle, Trophy } from 'lucide-react'
+import { CheckCircle2, Gift, Heart, Infinity as InfinityIcon, Swords, X, XCircle, Trophy, Sparkles, Zap, Gem, Snowflake } from 'lucide-react'
+import { getChestBonusItem, CHEST_BONUS_DETAILS, type ChestBonusItem } from '@/src/lib/chestRewards'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
@@ -61,7 +62,7 @@ type LessonContent =
 type NodeData =
   | { type: 'lesson'; title: string; content: LessonContent }
   | { type: 'quiz'; title: string; questions: QuizQuestion[]; isBoss: boolean }
-  | { type: 'treasure'; title: string; rewardCurrency: 'xp' | 'gems'; rewardAmount: number; isCompleted: boolean }
+  | { type: 'treasure'; title: string; rewardCurrency: 'xp' | 'gems' | 'item'; rewardAmount: number; itemCode?: string; isCompleted: boolean }
 
 export default function NodeActivityPage() {
   const { t } = useLanguage()
@@ -107,15 +108,17 @@ export default function NodeActivityPage() {
             isBoss: node.type === 'boss' || chapter?.nodes.at(-1)?.id === node.id,
           })
         } else if (node.type === 'treasure') {
-          if (!node.rewardCurrency || !node.rewardAmount) {
+          const isItemReward = node.rewardCurrency === 'item' || (!node.rewardCurrency && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content))
+          if (!isItemReward && (!node.rewardCurrency || !node.rewardAmount)) {
             setLoadError(t('This treasure reward is not configured.', 'Hadiah peti harta ini belum diatur.'))
             return
           }
           setNodeData({
             type: 'treasure',
             title: node.title,
-            rewardCurrency: node.rewardCurrency,
-            rewardAmount: node.rewardAmount,
+            rewardCurrency: isItemReward ? 'item' : (node.rewardCurrency ?? 'xp'),
+            rewardAmount: isItemReward ? 1 : (node.rewardAmount ?? 10),
+            itemCode: isItemReward ? node.content : undefined,
             isCompleted: node.status === 'completed',
           })
         } else {
@@ -238,9 +241,11 @@ export default function NodeActivityPage() {
           />
         ) : nodeData.type === 'treasure' ? (
           <TreasureActivity
+            nodeId={nodeId}
             title={nodeData.title}
             rewardCurrency={nodeData.rewardCurrency}
             rewardAmount={nodeData.rewardAmount}
+            itemCode={nodeData.itemCode}
             isCompleted={nodeData.isCompleted}
             onClaim={() => { void completeActivity() }}
             isClaiming={isSavingProgress}
@@ -325,57 +330,268 @@ export default function NodeActivityPage() {
   )
 }
 
+function TreasureChestGraphic({ state }: { state: 'closed' | 'opening' | 'opened' }) {
+  return (
+    <div className={`relative mx-auto flex h-36 w-36 items-center justify-center sm:h-44 sm:w-44 ${
+      state === 'opening' ? 'animate-[chest-rumble_0.2s_ease-in-out_infinite]' : ''
+    }`}>
+      {/* Sunburst Rays when opened */}
+      {state === 'opened' && (
+        <div className="pointer-events-none absolute inset-0 -m-8 flex items-center justify-center animate-[sunburst-spin_22s_linear_infinite]">
+          <svg className="h-60 w-60 text-amber-300/40 opacity-90 sm:h-72 sm:w-72" viewBox="0 0 100 100" fill="currentColor">
+            {Array.from({ length: 12 }).map((_, i) => (
+              <polygon
+                key={i}
+                points="50,50 44,0 56,0"
+                transform={`rotate(${i * 30} 50 50)`}
+              />
+            ))}
+          </svg>
+        </div>
+      )}
+
+      {/* Floating Sparkles when opened */}
+      {state === 'opened' && (
+        <>
+          <Sparkles className="absolute -top-2 -left-2 h-6 w-6 text-amber-400 animate-bounce" />
+          <Sparkles className="absolute -top-4 right-2 h-7 w-7 text-yellow-300 animate-pulse" />
+          <Sparkles className="absolute bottom-4 -right-3 h-5 w-5 text-amber-500 animate-bounce" />
+          <Sparkles className="absolute bottom-2 -left-3 h-5 w-5 text-sky-400 animate-pulse" />
+        </>
+      )}
+
+      {/* Stylized Duolingo-style Chest SVG */}
+      <svg
+        viewBox="0 0 120 100"
+        className="h-full w-full select-none drop-shadow-xl transition-transform duration-300"
+      >
+        <ellipse cx="60" cy="94" rx="46" ry="6" fill="#000000" opacity="0.2" />
+
+        <rect x="20" y="48" width="80" height="42" rx="8" fill="#c2410c" stroke="#7c2d12" strokeWidth="4" />
+        <rect x="24" y="52" width="72" height="34" rx="5" fill="#ea580c" />
+
+        <rect x="20" y="48" width="12" height="42" fill="#fbbf24" stroke="#d97706" strokeWidth="2" />
+        <rect x="88" y="48" width="12" height="42" fill="#fbbf24" stroke="#d97706" strokeWidth="2" />
+        <rect x="54" y="48" width="12" height="42" fill="#fbbf24" stroke="#d97706" strokeWidth="2" />
+
+        {state === 'opened' ? (
+          <>
+            <ellipse cx="60" cy="48" rx="36" ry="14" fill="#78350f" stroke="#451a03" strokeWidth="3" />
+            <ellipse cx="60" cy="48" rx="30" ry="10" fill="#fef08a" />
+            <circle cx="50" cy="46" r="6" fill="#f59e0b" />
+            <circle cx="68" cy="47" r="5" fill="#fbbf24" />
+            <circle cx="60" cy="44" r="5" fill="#fef08a" />
+
+            <path
+              d="M 18,34 Q 60,6 102,34 L 98,42 Q 60,18 22,42 Z"
+              fill="#c2410c"
+              stroke="#7c2d12"
+              strokeWidth="4"
+            />
+            <path
+              d="M 22,34 Q 60,12 98,34 L 95,38 Q 60,20 25,38 Z"
+              fill="#ea580c"
+            />
+          </>
+        ) : (
+          <>
+            <path
+              d="M 18,50 Q 60,18 102,50 L 98,38 Q 60,8 22,38 Z"
+              fill="#c2410c"
+              stroke="#7c2d12"
+              strokeWidth="4"
+            />
+            <path
+              d="M 22,46 Q 60,22 98,46 L 96,40 Q 60,16 24,40 Z"
+              fill="#ea580c"
+            />
+            <path d="M 20,48 Q 28,26 32,38 L 22,48 Z" fill="#fbbf24" />
+            <path d="M 88,48 Q 92,26 98,38 L 88,48 Z" fill="#fbbf24" />
+            <path d="M 54,48 Q 60,18 66,48 Z" fill="#fbbf24" stroke="#d97706" strokeWidth="2" />
+
+            <circle cx="60" cy="54" r="9" fill="#fef08a" stroke="#d97706" strokeWidth="3" />
+            <rect x="58" y="52" width="4" height="6" rx="2" fill="#78350f" />
+          </>
+        )}
+      </svg>
+    </div>
+  )
+}
+
 function TreasureActivity({
+  nodeId,
   title,
   rewardCurrency,
   rewardAmount,
+  itemCode,
   isCompleted,
   onClaim,
   isClaiming,
   error,
   t,
 }: {
+  nodeId: string
   title: string
-  rewardCurrency: 'xp' | 'gems'
+  rewardCurrency: 'xp' | 'gems' | 'item'
   rewardAmount: number
+  itemCode?: string
   isCompleted: boolean
   onClaim: () => void
   isClaiming: boolean
   error: string
   t: (en: string, id: string) => string
 }) {
+  const [chestState, setChestState] = useState<'closed' | 'opening' | 'opened'>(
+    () => (isCompleted ? 'opened' : 'closed')
+  )
+
+  const isItemReward = rewardCurrency === 'item'
+  const activeItemCode = (itemCode && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(itemCode)
+    ? itemCode
+    : getChestBonusItem(nodeId)) as ChestBonusItem
+  const itemMeta = CHEST_BONUS_DETAILS[activeItemCode]
+
+  const handleOpenChest = () => {
+    if (chestState !== 'closed' || isCompleted || isClaiming) return
+    if (typeof window !== 'undefined' && 'vibrate' in navigator) {
+      try {
+        navigator.vibrate([30, 40, 50])
+      } catch {}
+    }
+    setChestState('opening')
+    setTimeout(() => {
+      setChestState('opened')
+    }, 850)
+  }
+
+  const ItemIcon = activeItemCode === 'DOUBLE_XP'
+    ? Zap
+    : activeItemCode === 'STREAK_FREEZE'
+      ? Snowflake
+      : Heart
+
   return (
-    <section className="overflow-hidden rounded-3xl border-2 border-amber-200 bg-white shadow-sm">
-      <div className="flex flex-col items-center gap-4 bg-amber-50 px-6 py-10 text-center sm:px-8">
-        <span className="grid h-20 w-20 place-items-center rounded-3xl border-2 border-amber-200 bg-white text-amber-500 shadow-sm">
-          <Gift className="h-10 w-10" />
-        </span>
-        <div>
-          <p className="text-xs font-extrabold uppercase tracking-widest text-amber-600">
-            {t('Treasure found', 'Peti harta ditemukan')}
+    <section className="overflow-hidden rounded-3xl border-2 border-slate-200 bg-white shadow-xl transition-all">
+      <style jsx>{`
+        @keyframes chest-rumble {
+          0%, 100% { transform: rotate(0deg) scale(1); }
+          20% { transform: rotate(-6deg) scale(1.06); }
+          40% { transform: rotate(6deg) scale(1.06); }
+          60% { transform: rotate(-4deg) scale(1.08); }
+          80% { transform: rotate(4deg) scale(1.08); }
+        }
+        @keyframes sunburst-spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes reward-pop {
+          0% { transform: scale(0.6) translateY(20px); opacity: 0; }
+          70% { transform: scale(1.06) translateY(-4px); opacity: 1; }
+          100% { transform: scale(1) translateY(0); opacity: 1; }
+        }
+      `}</style>
+
+      <div className="relative flex flex-col items-center gap-4 bg-gradient-to-b from-slate-50 to-slate-100/70 px-6 py-8 text-center sm:px-8 overflow-hidden">
+        {/* Chest Graphic */}
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={handleOpenChest}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') handleOpenChest()
+          }}
+          className={`relative z-10 transition-transform ${
+            chestState === 'closed' ? 'cursor-pointer hover:scale-105 active:scale-95' : ''
+          }`}
+        >
+          <TreasureChestGraphic state={chestState} />
+        </div>
+
+        {/* Status Texts - stable height */}
+        <div className="relative z-10 min-h-[50px] flex flex-col justify-center">
+          <p className="text-xs font-black uppercase tracking-widest text-amber-600">
+            {chestState === 'opened'
+              ? t('Treasure Unlocked!', 'Peti Terbuka!')
+              : t('Treasure Chest Found', 'Peti Harta Ditemukan')}
           </p>
-          <p className="mt-2 text-sm font-semibold text-slate-500">
-            {t('A one-time reward is waiting inside.', 'Hadiah satu kali menantimu di dalam.')}
+          <p className="mt-1 text-sm font-bold text-slate-500">
+            {chestState === 'opened'
+              ? (isItemReward
+                  ? t(itemMeta.desc.en, itemMeta.desc.id)
+                  : rewardCurrency === 'gems'
+                    ? t('Added to your gems balance!', 'Ditambahkan ke saldo permatamu!')
+                    : t('Added to your weekly leaderboard rank!', 'Ditambahkan ke peringkat mingguanmu!'))
+              : t('Tap the chest or button to open it!', 'Ketuk peti atau tombol untuk membukanya!')}
           </p>
         </div>
-        <div className="rounded-2xl border-2 border-amber-200 bg-white px-6 py-3 text-2xl font-black text-amber-700">
-          +{rewardAmount} {rewardCurrency === 'gems' ? t('gems', 'permata') : 'XP'}
+
+        {/* Reward Chip - EXACT SAME container height and structure, zero layout shift! */}
+        <div className="relative z-10 flex min-h-[56px] items-center justify-center">
+          {chestState === 'opened' ? (
+            <div className={`flex items-center gap-3 rounded-2xl border-2 ${
+              isItemReward ? itemMeta.border : rewardCurrency === 'gems' ? 'border-teal-300' : 'border-amber-300'
+            } bg-white px-6 py-2.5 shadow-md animate-[reward-pop_0.4s_cubic-bezier(0.16,1,0.3,1)_both]`}>
+              <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${
+                isItemReward ? `${itemMeta.bg} ${itemMeta.color}` : rewardCurrency === 'gems' ? 'bg-teal-100 text-teal-600' : 'bg-amber-100 text-amber-600'
+              }`}>
+                {isItemReward ? <ItemIcon className="h-4 w-4" /> : rewardCurrency === 'gems' ? <Gem className="h-4 w-4" /> : <Zap className="h-4 w-4 fill-current" />}
+              </div>
+              <span className="text-base font-black text-slate-800 sm:text-lg">
+                {isItemReward
+                  ? t(itemMeta.title.en, itemMeta.title.id)
+                  : rewardCurrency === 'gems'
+                    ? `+${rewardAmount} ${t('Gems', 'Permata')}`
+                    : `+${rewardAmount} XP`}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2.5 rounded-2xl border-2 border-slate-200 bg-white px-6 py-2.5 text-base font-black text-slate-700 shadow-sm sm:text-lg">
+              <Gift className="h-5 w-5 text-amber-500" />
+              <span>
+                {isItemReward
+                  ? t('Mystery Power-up Inside', 'Power-up Misteri di Dalam')
+                  : rewardCurrency === 'gems'
+                    ? `+${rewardAmount} ${t('Gems', 'Permata')}`
+                    : `+${rewardAmount} XP`}
+              </span>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Action Button Section */}
       <div className="p-4 sm:p-6">
-        {error && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
-        <button
-          type="button"
-          onClick={onClaim}
-          disabled={isCompleted || isClaiming}
-          className="w-full rounded-2xl border-b-4 border-amber-800 bg-amber-500 px-5 py-4 font-extrabold text-white transition-colors hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
-        >
-          {isCompleted
-            ? t('Already collected', 'Sudah diklaim')
-            : isClaiming
-              ? t('Saving...', 'Menyimpan...')
-              : t('Open treasure', 'Buka peti harta')}
-        </button>
+        {error && (
+          <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">
+            {error}
+          </p>
+        )}
+
+        {chestState === 'opened' ? (
+          <button
+            type="button"
+            onClick={onClaim}
+            disabled={isClaiming}
+            className="w-full rounded-2xl border-b-4 border-emerald-700 bg-emerald-500 hover:bg-emerald-600 px-5 py-4 font-black text-white text-lg transition-all active:translate-y-1 active:border-b-0 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 shadow-lg shadow-emerald-500/20"
+          >
+            {isCompleted
+              ? t('Back to Roadmap', 'Kembali ke Peta Belajar')
+              : isClaiming
+                ? t('Claiming Reward…', 'Mengklaim Hadiah…')
+                : t('Claim & Continue', 'Klaim & Lanjutkan')}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleOpenChest}
+            disabled={chestState === 'opening' || isClaiming}
+            className="w-full rounded-2xl border-b-4 border-amber-800 bg-amber-500 hover:bg-amber-600 px-5 py-4 font-black text-white text-lg transition-all active:translate-y-1 active:border-b-0 shadow-lg shadow-amber-500/20 disabled:cursor-wait disabled:opacity-80"
+          >
+            {chestState === 'opening'
+              ? t('Opening Chest…', 'Membuka Peti…')
+              : t('Open Treasure Chest', 'Buka Peti Harta')}
+          </button>
+        )}
       </div>
     </section>
   )

@@ -28,7 +28,6 @@ export async function GET() {
     const answers = await prisma.quizAnswer.findMany({
       where: {
         userId: authentication.appUser.id,
-        isCorrect: false,
         question: {
           node: {
             isPublished: true,
@@ -38,8 +37,9 @@ export async function GET() {
         },
       },
       orderBy: { createdAt: 'desc' },
-      take: 200,
+      take: 400,
       select: {
+        isCorrect: true,
         createdAt: true,
         question: {
           select: {
@@ -61,21 +61,26 @@ export async function GET() {
     })
 
     const seenQuestionIds = new Set<string>()
-    const mistakes = answers.flatMap(({ question }) => {
-      if (seenQuestionIds.has(question.id)) return []
+    const mistakes = []
+    for (const { isCorrect, question } of answers) {
+      if (seenQuestionIds.has(question.id)) continue
       seenQuestionIds.add(question.id)
-      return [{
-        questionId: question.id,
-        prompt: question.prompt,
-        options: question.options.map(({ id, text }) => ({ id, text })),
-        allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
-        chapterId: question.node.chapterId,
-        chapterTitle: question.node.chapter.title,
-        nodeId: question.node.id,
-        nodeTitle: question.node.title,
-        submoduleTitle: question.node.submodule?.title ?? null,
-      }]
-    })
+      // Since answers are ordered by createdAt: 'desc', the first occurrence is the learner's latest response.
+      // If the latest answer is correct (either solved in review or in a newer quiz attempt), it is no longer a mistake!
+      if (!isCorrect) {
+        mistakes.push({
+          questionId: question.id,
+          prompt: question.prompt,
+          options: question.options.map(({ id, text }) => ({ id, text })),
+          allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
+          chapterId: question.node.chapterId,
+          chapterTitle: question.node.chapter.title,
+          nodeId: question.node.id,
+          nodeTitle: question.node.title,
+          submoduleTitle: question.node.submodule?.title ?? null,
+        })
+      }
+    }
 
     return NextResponse.json({ mistakes }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
@@ -120,6 +125,19 @@ export async function POST(request: Request) {
     const correctOptionIds = question.options.filter((option) => option.isCorrect).map((option) => option.id)
     const isCorrect = body.optionIds.length === correctOptionIds.length
       && body.optionIds.every((id) => correctOptionIds.includes(id))
+
+    if (isCorrect) {
+      await prisma.quizAnswer.updateMany({
+        where: {
+          userId: authentication.appUser.id,
+          questionId: body.questionId,
+          isCorrect: false,
+        },
+        data: {
+          isCorrect: true,
+        },
+      })
+    }
 
     return NextResponse.json({ isCorrect, correctOptionIds }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {

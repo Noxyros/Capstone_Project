@@ -69,8 +69,10 @@ function toCurriculumSubject(
           : node.contentType === RoadmapContentType.MATERIAL ? 'material' as const : 'text' as const,
         content: node.content,
         resourceUrl: node.resourceUrl,
-        ...(node.rewardCurrency ? { rewardCurrency: node.rewardCurrency.toLowerCase() as 'xp' | 'gems' } : {}),
-        ...(node.rewardAmount !== null ? { rewardAmount: node.rewardAmount } : {}),
+        ...(node.type === RoadmapNodeType.TREASURE && !node.rewardCurrency && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content)
+          ? { rewardCurrency: 'item' as const, rewardAmount: 1 }
+          : node.rewardCurrency ? { rewardCurrency: node.rewardCurrency.toLowerCase() as 'xp' | 'gems' } : {}),
+        ...(node.rewardAmount !== null && node.rewardCurrency ? { rewardAmount: node.rewardAmount } : {}),
         questions: node.questions.map((question) => ({
           id: question.id,
           prompt: question.prompt,
@@ -184,9 +186,17 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
 
         if (node.type === 'treasure') {
           if (node.questions.length !== 0) return { error: `${nodePath}.questions must be empty for a treasure node.` }
-          if (node.rewardCurrency !== 'xp' && node.rewardCurrency !== 'gems') return { error: `${nodePath}.rewardCurrency is not supported.` }
-          if (!Number.isInteger(node.rewardAmount) || (node.rewardAmount as number) < 10 || (node.rewardAmount as number) > 100_000) {
-            return { error: `${nodePath}.rewardAmount must be an integer from 10 to 100,000.` }
+          if (node.rewardCurrency !== 'xp' && node.rewardCurrency !== 'gems' && node.rewardCurrency !== 'item') {
+            return { error: `${nodePath}.rewardCurrency is not supported.` }
+          }
+          if (node.rewardCurrency === 'item') {
+            if (!['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content as string)) {
+              return { error: `${nodePath}.content must be a supported power-up (DOUBLE_XP, STREAK_FREEZE, or HEART_REFILL).` }
+            }
+          } else {
+            if (!Number.isInteger(node.rewardAmount) || (node.rewardAmount as number) < 10 || (node.rewardAmount as number) > 100_000) {
+              return { error: `${nodePath}.rewardAmount must be an integer from 10 to 100,000.` }
+            }
           }
           continue
         }
@@ -458,7 +468,7 @@ export async function PUT(request: Request) {
               rewardCurrency: node.rewardCurrency === 'xp'
                 ? RoadmapRewardCurrency.XP
                 : node.rewardCurrency === 'gems' ? RoadmapRewardCurrency.GEMS : null,
-              rewardAmount: node.rewardAmount ?? null,
+              rewardAmount: node.rewardCurrency === 'item' ? 1 : (node.rewardAmount ?? null),
               isPublished: node.status !== 'locked',
               chapterId: chapter.id,
               submoduleId: node.submoduleId ?? null,
