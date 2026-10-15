@@ -39,7 +39,7 @@ export default function ResetPasswordPage() {
             ))
           }
         }
-      } catch {} finally {
+      } catch { } finally {
         setIsCheckingSession(false)
       }
     }
@@ -99,9 +99,8 @@ export default function ResetPasswordPage() {
               type="button"
               onClick={() => setLanguage(option)}
               aria-pressed={language === option}
-              className={`rounded-full px-3 py-1.5 text-xs font-extrabold transition-colors ${
-                language === option ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
-              }`}
+              className={`rounded-full px-3 py-1.5 text-xs font-extrabold transition-colors ${language === option ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+                }`}
             >
               {option.toUpperCase()}
             </button>
@@ -179,17 +178,28 @@ export default function ResetPasswordPage() {
                 <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">
                   {t('Confirm password', 'Konfirmasi kata sandi')}
                 </span>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  required
-                  minLength={8}
-                  maxLength={72}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
-                  placeholder={t('Repeat your new password', 'Ulangi kata sandi baru')}
-                />
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete="new-password"
+                    required
+                    minLength={8}
+                    maxLength={72}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 pr-12 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    placeholder={t('Repeat your new password', 'Ulangi kata sandi baru')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
+                    aria-pressed={showPassword}
+                    className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  >
+                    {showPassword ? <EyeOff aria-hidden="true" className="h-5 w-5" /> : <Eye aria-hidden="true" className="h-5 w-5" />}
+                  </button>
+                </div>
               </label>
 
               {error && (
