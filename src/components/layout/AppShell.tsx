@@ -11,11 +11,12 @@ import { useLanguage } from '@/src/context/LanguageContext'
 import { loadCurriculum } from '@/src/lib/curriculumClient'
 import { loadLeaderboard } from '@/src/lib/leaderboardClient'
 import { PROGRESS_SYNC_EVENT, syncPendingProgress, type ProgressSyncEventDetail } from '@/src/lib/progressSyncClient'
+import { checkAndSendDailyReminder } from '@/src/lib/dailyReminders'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
-  const { state, error, refreshProfile, updateProfile, user } = useAuth()
-  const { t } = useLanguage()
+  const { state, error, refreshProfile, updateProfile, user, profile } = useAuth()
+  const { t, language } = useLanguage()
   const [progressSyncError, setProgressSyncError] = useState('')
   const isNodeActivity = /^\/chapter\/[^/]+\/node\/[^/]+$/.test(pathname)
   const learnerStats = state === 'signed_in'
@@ -48,6 +49,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       console.error('Failed to prepare learner subjects and leaderboard.', preloadFailure)
     })
   }, [state, user?.id])
+
+  useEffect(() => {
+    if (state !== 'signed_in' || !profile) return
+    const today = new Date().toISOString().slice(0, 10)
+    const hasStudiedToday = profile.activityDates?.includes(today) ?? false
+    checkAndSendDailyReminder({
+      streak: profile.streak,
+      hasStudiedToday,
+      isIndonesian: language === 'id',
+    })
+  }, [state, profile?.streak, profile?.activityDates, language])
 
   useEffect(() => {
     if (state !== 'signed_in' || !user?.id) {

@@ -84,7 +84,7 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
   const monthStart = `${today.slice(0, 7)}-01`
   const weekStartInstant = new Date(`${weekStart}T00:00:00+07:00`)
 
-  const [user, weeklyTotals, students, completedNodesCount, perfectQuizzesCount] = await Promise.all([
+  const [user, weeklyTotals, students, completedNodesCount, perfectQuizzesCount, earnedGemsSum] = await Promise.all([
     measureTimedOperation(timings, 'profile.userQueryMs', () => prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -131,6 +131,10 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
     measureTimedOperation(timings, 'profile.perfectQuizzesCountMs', () => prisma.nodeProgress.count({
       where: { userId, completedAt: { not: null }, bestScore: 100 },
     })),
+    measureTimedOperation(timings, 'profile.gemsEarnedMs', () => prisma.rewardEvent.aggregate({
+      where: { userId, gemsDelta: { gt: 0 } },
+      _sum: { gemsDelta: true },
+    })),
   ])
   if (!user) return null
 
@@ -159,6 +163,7 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
     totalXp: user.totalXp,
     weeklyXp,
     gems: user.gems,
+    gemsEarned: earnedGemsSum._sum.gemsDelta ?? 0,
     hearts: user.hearts,
     maxHearts: user.maxHearts,
     superMode: user.superMode,

@@ -11,6 +11,7 @@ export interface AppProfile {
   totalXp: number
   weeklyXp: number
   gems: number
+  gemsEarned?: number
   hearts: number
   maxHearts: number
   superMode: boolean
@@ -96,4 +97,5 @@ export function isAppProfile(value: unknown): value is AppProfile {
     && 'activityDates' in value && Array.isArray(value.activityDates) && value.activityDates.every((date) => typeof date === 'string')
     && (!('completedNodesCount' in value) || typeof value.completedNodesCount === 'number')
     && (!('perfectQuizzesCount' in value) || typeof value.perfectQuizzesCount === 'number')
+    && (!('gemsEarned' in value) || typeof value.gemsEarned === 'number')
 }

@@ -15,6 +15,7 @@ import { useAuth } from '@/src/context/AuthContext'
 import type { AppProfile } from '@/src/lib/appProfile'
 import AppLoadingScreen from '@/src/components/shared/AppLoadingScreen'
 import { enqueueNodeProgress } from '@/src/lib/progressSyncClient'
+import { playCorrectSound, playIncorrectSound, playFanfareSound, playChestOpenSound, playClickSound } from '@/src/lib/soundEffects'
 
 type QuizOption = {
   id: string
@@ -459,8 +460,10 @@ function TreasureActivity({
       } catch {}
     }
     setChestState('opening')
+    playChestOpenSound()
     setTimeout(() => {
       setChestState('opened')
+      playFanfareSound()
     }, 850)
   }
 
@@ -713,7 +716,10 @@ function LessonActivity({
         {error && <p role="alert" className="mb-3 rounded-xl border-2 border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
         <button
           type="button"
-          onClick={onComplete}
+          onClick={() => {
+            playFanfareSound()
+            onComplete()
+          }}
           disabled={isCompleting}
           aria-busy={isCompleting}
           className="flex min-h-14 w-full items-center justify-center rounded-2xl border-b-4 border-indigo-800 bg-indigo-600 py-4 font-extrabold text-white shadow-sm transition-all hover:bg-indigo-700 active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-70"
@@ -843,6 +849,7 @@ function QuizActivity({
 
   const selectAnswer = (optionId: string) => {
     if (isChecked) return
+    playClickSound()
     const supportsMultipleAnswers = currentQuestion.allowsMultipleAnswers === true
     const selected = new Set(currentResponse?.selectedOptionIds ?? [])
     if (supportsMultipleAnswers && selected.has(optionId)) selected.delete(optionId)
@@ -882,6 +889,11 @@ function QuizActivity({
         maxHearts: result.maxHearts,
         superMode: result.superMode,
       })
+      if (result.isCorrect) {
+        playCorrectSound()
+      } else {
+        playIncorrectSound()
+      }
       setCorrectOptionIdsByQuestion((previous) => ({ ...previous, [currentIndex]: result.correctOptionIds }))
       setResponses((previous) => ({
         ...previous,
@@ -898,8 +910,10 @@ function QuizActivity({
     if (!isChecked) return
     if (currentIndex === questions.length - 1) {
       setIsFinished(true)
+      playFanfareSound()
       return
     }
+    playClickSound()
     setCurrentIndex((previous) => previous + 1)
   }
 

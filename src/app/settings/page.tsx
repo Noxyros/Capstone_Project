@@ -1,24 +1,34 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { LogOut, Globe, Volume2, Bell, Moon, Sun, Monitor, HelpCircle, ChevronRight } from 'lucide-react'
+import { LogOut, Globe, Volume2, Bell, Moon, Sun, Monitor, HelpCircle, ChevronRight, Info } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useTheme } from '@/src/context/ThemeContext'
 import { useAuth } from '@/src/context/AuthContext'
 import LogoutConfirmDialog from '@/src/components/shared/LogoutConfirmDialog'
+import { isSoundEnabled, setSoundEnabled, playCorrectSound } from '@/src/lib/soundEffects'
+import {
+  areRemindersEnabled,
+  setRemindersEnabled,
+  isNotificationSupported,
+  getNotificationPermission,
+  requestNotificationPermission,
+  sendWelcomeReminderNotification,
+} from '@/src/lib/dailyReminders'
 
 interface SettingsToggleRowProps {
   icon: React.ComponentType<{ className?: string }>
   title: string
+  subtitle?: string
   iconBg: string
   iconColor: string
   checked: boolean
   onChange: (value: boolean) => void
 }
 
-function SettingsToggleRow({ icon: Icon, title, iconBg, iconColor, checked, onChange }: SettingsToggleRowProps) {
+function SettingsToggleRow({ icon: Icon, title, subtitle, iconBg, iconColor, checked, onChange }: SettingsToggleRowProps) {
   return (
     <div
       role="switch"
@@ -30,7 +40,10 @@ function SettingsToggleRow({ icon: Icon, title, iconBg, iconColor, checked, onCh
         <div className={`p-2.5 ${iconBg} rounded-xl ${iconColor} shrink-0`}>
           <Icon className="w-5 h-5" />
         </div>
-        <span className="font-extrabold text-slate-800 text-sm truncate">{title}</span>
+        <div className="min-w-0 flex-1">
+          <p className="font-extrabold text-slate-800 text-sm truncate">{title}</p>
+          {subtitle && <p className="text-xs text-slate-400 font-medium truncate">{subtitle}</p>}
+        </div>
       </div>
       
       <div
@@ -55,8 +68,54 @@ export default function SettingsPage() {
   const { signOut } = useAuth()
 
   const [sound, setSound] = useState(true)
-  const [reminders, setReminders] = useState(true)
+  const [reminders, setReminders] = useState(false)
+  const [reminderMessage, setReminderMessage] = useState('')
   const [logoutOpen, setLogoutOpen] = useState(false)
+
+  useEffect(() => {
+    setSound(isSoundEnabled())
+    setReminders(areRemindersEnabled() && getNotificationPermission() === 'granted')
+  }, [])
+
+  const handleToggleSound = (next: boolean) => {
+    setSound(next)
+    setSoundEnabled(next)
+    if (next) {
+      playCorrectSound()
+    }
+  }
+
+  const handleToggleReminders = async (next: boolean) => {
+    setReminderMessage('')
+    if (!next) {
+      setReminders(false)
+      setRemindersEnabled(false)
+      return
+    }
+
+    if (!isNotificationSupported()) {
+      setReminderMessage(
+        t('Browser notifications are not supported on this device.', 'Notifikasi browser tidak didukung di perangkat ini.')
+      )
+      return
+    }
+
+    const permission = await requestNotificationPermission()
+    if (permission === 'granted') {
+      setReminders(true)
+      setRemindersEnabled(true)
+      sendWelcomeReminderNotification(language === 'id')
+    } else if (permission === 'denied') {
+      setReminders(false)
+      setRemindersEnabled(false)
+      setReminderMessage(
+        t(
+          'Notifications are blocked. Please enable notification permissions in your browser address bar.',
+          'Notifikasi diblokir. Silakan aktifkan izin notifikasi di bilah alamat browsermu.'
+        )
+      )
+    }
+  }
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto pb-10">
@@ -125,20 +184,29 @@ export default function SettingsPage() {
         <SettingsToggleRow
           icon={Volume2}
           title={t('Sound Effects', 'Efek Suara')}
+          subtitle={t('Play sounds on answers, chests, and rewards', 'Putar efek suara saat menjawab, membuka peti, dan hadiah')}
           iconBg="bg-sky-50"
           iconColor="text-sky-600"
           checked={sound}
-          onChange={setSound}
+          onChange={handleToggleSound}
         />
 
         <SettingsToggleRow
           icon={Bell}
           title={t('Daily Reminders', 'Pengingat Harian')}
+          subtitle={t('Get notifications to protect your study streak', 'Dapatkan notifikasi untuk menjaga streak belajarmu')}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
           checked={reminders}
-          onChange={setReminders}
+          onChange={handleToggleReminders}
         />
+
+        {reminderMessage && (
+          <div className="p-4 sm:p-5 bg-amber-50/80 border-b border-amber-100 flex items-start gap-3">
+            <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-xs font-bold text-amber-800 leading-relaxed">{reminderMessage}</p>
+          </div>
+        )}
 
         <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
           <div className="flex min-w-0 items-center gap-3">
