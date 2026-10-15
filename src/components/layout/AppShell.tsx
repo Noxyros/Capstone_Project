@@ -117,7 +117,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (state === 'loading') return <main className="min-h-dvh"><AppLoadingScreen /></main>
 
-  if (pathname === '/login' || pathname.startsWith('/auth/')) {
+  if (pathname === '/login' || pathname === '/reset-password' || pathname.startsWith('/auth/')) {
     return <main className="min-h-dvh w-full">{children}</main>
   }
 
