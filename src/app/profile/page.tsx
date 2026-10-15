@@ -181,7 +181,13 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className="flex-1 space-y-4 w-full">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            void handleSaveChanges()
+          }}
+          className="flex-1 space-y-4 w-full"
+        >
           <div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5 block">
               {t('Display Name', 'Nama Tampilan')}
@@ -232,15 +238,14 @@ export default function ProfilePage() {
               {profile ? t(`Joined ${joinedDate}`, `Bergabung ${joinedDate}`) : t('Loading profile…', 'Memuat profil…')}
             </span>
             <button
-              type="button"
-              onClick={() => void handleSaveChanges()}
+              type="submit"
               disabled={!hasChanges || isSaving}
               className={`px-6 py-3 rounded-2xl font-extrabold text-sm transition-all w-full sm:w-auto ${hasChanges && !isSaving ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm hover:-translate-y-0.5' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}
             >
               {isSaving ? t('Saving...', 'Menyimpan...') : t('Save Changes', 'Simpan Perubahan')}
             </button>
           </div>
-        </div>
+        </form>
       </section>
 
       <section>

@@ -371,6 +371,33 @@ export default function TeacherPage() {
     }
   }
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ctrl+Enter or Cmd+Enter to save anywhere
+      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+        event.preventDefault()
+        if (hasUnsavedChanges && !isSaving) {
+          void saveChanges()
+        }
+        return
+      }
+
+      // Enter key in single-line input to blur and save
+      if (event.key === 'Enter') {
+        const target = event.target as HTMLElement | null
+        if (target && target.tagName === 'INPUT') {
+          target.blur()
+          if (hasUnsavedChanges && !isSaving) {
+            void saveChanges()
+          }
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [hasUnsavedChanges, isSaving, subjects, gradeDrafts, savedSubjects])
+
   const generateRoadmap = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (isGeneratingRoadmap) return
@@ -1172,7 +1199,12 @@ export default function TeacherPage() {
           className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-5 py-3 font-extrabold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 disabled:hover:bg-slate-200"
         >
           {isSaving ? <LoaderCircle className="h-5 w-5 animate-spin" /> : hasUnsavedChanges ? <Save className="h-5 w-5" /> : <Check className="hidden h-5 w-5 sm:block" />}
-          {isSaving ? t('Saving…', 'Menyimpan…') : hasUnsavedChanges ? t('Save changes', 'Simpan perubahan') : t('Saved', 'Tersimpan')}
+          <span>{isSaving ? t('Saving…', 'Menyimpan…') : hasUnsavedChanges ? t('Save changes', 'Simpan perubahan') : t('Saved', 'Tersimpan')}</span>
+          {hasUnsavedChanges && !isSaving && (
+            <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-800/40 text-[11px] font-bold text-emerald-100 border border-emerald-500/30">
+              ↵ Enter
+            </kbd>
+          )}
         </button>
       </div>
       {toast.visible && portalReady && createPortal(

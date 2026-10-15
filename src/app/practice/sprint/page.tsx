@@ -162,6 +162,39 @@ export default function RapidSprintPage() {
     }
   }
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (!isStarted) {
+          setIsStarted(true)
+        } else if (current && selectedOptionIds.length > 0 && !isSubmitting) {
+          if (questionIndex === 9) {
+            void finishSprint()
+          } else {
+            setQuestionIndex((prev) => prev + 1)
+          }
+        }
+        return
+      }
+
+      if (isStarted && current && !result && !isTimedOut) {
+        const num = parseInt(e.key, 10)
+        if (!isNaN(num) && num >= 1 && num <= current.options.length) {
+          e.preventDefault()
+          const opt = current.options[num - 1]
+          if (opt) toggleOption(opt.id)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isStarted, current, selectedOptionIds, isSubmitting, questionIndex, result, isTimedOut])
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 pb-10 sm:px-0">
       <div>

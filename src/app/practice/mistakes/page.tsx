@@ -155,6 +155,35 @@ export default function MistakeReviewPage() {
     setError('')
   }
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (feedback === 'correct') {
+          continueReview()
+        } else if (selectedOptionIds.length > 0 && !isChecking) {
+          void checkAnswer()
+        }
+        return
+      }
+
+      if (feedback !== 'correct' && current) {
+        const num = parseInt(e.key, 10)
+        if (!isNaN(num) && num >= 1 && num <= current.options.length) {
+          e.preventDefault()
+          const opt = current.options[num - 1]
+          if (opt) toggleOption(opt.id)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [feedback, selectedOptionIds, isChecking, current, continueReview, checkAnswer, toggleOption])
+
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 pb-10 sm:px-0">
       <div>
