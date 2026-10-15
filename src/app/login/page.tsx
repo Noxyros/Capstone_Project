@@ -2,7 +2,7 @@
 
 import React, { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { ArrowRight, LoaderCircle } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, LoaderCircle } from 'lucide-react'
 import { useAuth } from '@/src/context/AuthContext'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/client'
@@ -52,6 +52,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
@@ -296,17 +297,30 @@ export default function LoginPage() {
 
             <label className="block">
               <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">{t('Password', 'Kata sandi')}</span>
-              <input
-                type="password"
-                autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
-                required
-                minLength={8}
-                maxLength={72}
-                value={password}
-                onChange={(event) => setPassword(event.target.value)}
-                className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
-                placeholder={t('At least 8 characters', 'Minimal 8 karakter')}
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
+                  required
+                  minLength={8}
+                  maxLength={72}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 pr-12 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                  placeholder={t('At least 8 characters', 'Minimal 8 karakter')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
+                  aria-pressed={showPassword}
+                  className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                >
+                  {showPassword
+                    ? <EyeOff aria-hidden="true" className="h-5 w-5" />
+                    : <Eye aria-hidden="true" className="h-5 w-5" />}
+                </button>
+              </div>
             </label>
 
             {(error || configurationError) && (
@@ -350,6 +364,7 @@ export default function LoginPage() {
                 setEmail('')
                 setUsername('')
                 setPassword('')
+                setShowPassword(false)
               }}
               className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
             >

@@ -1,7 +1,14 @@
 import { NextResponse } from 'next/server'
 import { Prisma, RoadmapNodeType, RoadmapRewardCurrency } from '@prisma/client'
 import { authenticateAppUser } from '@/src/lib/auth/server'
-import { getAppProfile, recordActivityDay, recordReward, REWARDS } from '@/src/lib/gameEconomy'
+import {
+  getAppProfile,
+  measureTimedOperation,
+  recordActivityDay,
+  recordReward,
+  REWARDS,
+  type OperationTimings,
+} from '@/src/lib/gameEconomy'
 import { syncDailyQuestRewards } from '@/src/lib/dailyQuestRewards'
 import { prisma } from '@/src/lib/prisma'
 
@@ -24,7 +31,14 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const authentication = await authenticateAppUser()
+  const requestStartedAt = performance.now()
+  let tokenVerificationMs = 0
+  let appUserLookupMs = 0
+  const authentication = await authenticateAppUser((timings) => {
+    tokenVerificationMs = timings.tokenVerificationMs
+    appUserLookupMs = timings.appUserLookupMs
+  })
+  const authenticationMs = Math.round(performance.now() - requestStartedAt)
   if (!authentication.appUser) {
     return NextResponse.json({ error: authentication.error }, { status: authentication.status })
   }
@@ -48,18 +62,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Progress data is invalid.' }, { status: 400 })
   }
 
+  const requestedNodeId = body.nodeId
+  let nodeLookupMs = 0
+  let transactionMs = 0
+  let profileMs = 0
+  const operationTimings: OperationTimings = {}
   try {
-    const node = await prisma.roadmapNode.findFirst({
-      where: { id: body.nodeId, isPublished: true, chapter: { isPublished: true } },
-      select: {
-        id: true,
-        chapterId: true,
-        type: true,
-        rewardCurrency: true,
-        rewardAmount: true,
-        questions: { select: { id: true } },
-      },
-    })
+    const nodeLookupStartedAt = performance.now()
+    let node
+    try {
+      node = await prisma.roadmapNode.findFirst({
+        where: { id: requestedNodeId, isPublished: true, chapter: { isPublished: true } },
+        select: {
+          id: true,
+          chapterId: true,
+          type: true,
+          rewardCurrency: true,
+          rewardAmount: true,
+          questions: { select: { id: true } },
+        },
+      })
+    } finally {
+      operationTimings['node.lookupQueryMs'] = Math.round(performance.now() - nodeLookupStartedAt)
+    }
+    nodeLookupMs = Math.round(performance.now() - nodeLookupStartedAt)
     if (!node) return NextResponse.json({ error: 'This learning activity is unavailable.' }, { status: 404 })
 
     const attemptId = 'attemptId' in body && typeof body.attemptId === 'string' ? body.attemptId : null
@@ -75,44 +101,52 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'This treasure reward is not configured.' }, { status: 500 })
     }
 
+    const transactionStartedAt = performance.now()
     const result = await prisma.$transaction(async (transaction) => {
       let score: number | null = null
       if (attemptId) {
-        const attempt = await transaction.quizAttempt.findFirst({
+        const attempt = await measureTimedOperation(operationTimings, 'quiz.attemptLookupQueryMs', () => transaction.quizAttempt.findFirst({
           where: { id: attemptId, userId: authentication.appUser.id, nodeId: node.id },
           select: { id: true, completedAt: true },
-        })
+        }))
         if (!attempt) throw new Error('QUIZ_ATTEMPT_NOT_FOUND')
         if (attempt.completedAt) {
-          const previous = await transaction.nodeProgress.findUnique({
+          const previous = await measureTimedOperation(operationTimings, 'progress.previousReadQueryMs', () => transaction.nodeProgress.findUnique({
             where: { userId_nodeId: { userId: authentication.appUser.id, nodeId: node.id } },
             select: { bestScore: true },
-          })
-          return { alreadyCompleted: true, score: previous?.bestScore ?? null, xpAwarded: 0, gemsAwarded: 0 }
+          }))
+          const questRewards = await syncDailyQuestRewards(transaction, authentication.appUser.id, new Date(), operationTimings)
+          return {
+            alreadyCompleted: true,
+            score: previous?.bestScore ?? null,
+            xpAwarded: questRewards.xpAwarded,
+            gemsAwarded: 0,
+            quests: questRewards.quests,
+          }
         }
 
-        const answers = await transaction.quizAnswer.findMany({
+        const answers = await measureTimedOperation(operationTimings, 'quiz.answersLookupQueryMs', () => transaction.quizAnswer.findMany({
           where: { attemptId: attempt.id },
           select: { isCorrect: true },
-        })
+        }))
         if (answers.length !== node.questions.length || answers.length === 0) {
           throw new Error('QUIZ_ANSWERS_INCOMPLETE')
         }
         score = Math.round((answers.filter((answer) => answer.isCorrect).length / node.questions.length) * 100)
-        await transaction.quizAttempt.update({
+        await measureTimedOperation(operationTimings, 'quiz.attemptCompletionUpdateMs', () => transaction.quizAttempt.update({
           where: { id: attempt.id },
           data: { completedAt: new Date() },
-        })
+        }))
       }
 
-      const previousProgress = await transaction.nodeProgress.findUnique({
+      const previousProgress = await measureTimedOperation(operationTimings, 'progress.previousReadQueryMs', () => transaction.nodeProgress.findUnique({
         where: { userId_nodeId: { userId: authentication.appUser.id, nodeId: node.id } },
         select: { bestScore: true, completedAt: true },
-      })
+      }))
       const bestScore = score === null
         ? previousProgress?.bestScore ?? null
         : Math.max(previousProgress?.bestScore ?? 0, score)
-      await transaction.nodeProgress.upsert({
+      await measureTimedOperation(operationTimings, 'progress.upsertQueryMs', () => transaction.nodeProgress.upsert({
         where: { userId_nodeId: { userId: authentication.appUser.id, nodeId: node.id } },
         create: {
           id: crypto.randomUUID(),
@@ -122,17 +156,17 @@ export async function POST(request: Request) {
           bestScore,
         },
         update: { completedAt: new Date(), bestScore },
-      })
+      }))
 
-      const remainingNodes = await transaction.roadmapNode.count({
+      const remainingNodes = await measureTimedOperation(operationTimings, 'progress.remainingNodesQueryMs', () => transaction.roadmapNode.count({
         where: {
           chapterId: node.chapterId,
           isPublished: true,
           progress: { none: { userId: authentication.appUser.id, completedAt: { not: null } } },
         },
-      })
+      }))
       if (remainingNodes === 0) {
-        await transaction.userProgress.upsert({
+        await measureTimedOperation(operationTimings, 'progress.chapterUpsertQueryMs', () => transaction.userProgress.upsert({
           where: { userId_chapterId: { userId: authentication.appUser.id, chapterId: node.chapterId } },
           create: {
             id: crypto.randomUUID(),
@@ -141,18 +175,18 @@ export async function POST(request: Request) {
             completed: true,
           },
           update: { completed: true },
-        })
+        }))
       }
 
       const firstCompletion = !previousProgress?.completedAt
-      const user = await transaction.user.findUniqueOrThrow({
+      const user = await measureTimedOperation(operationTimings, 'rewards.boostStateQueryMs', () => transaction.user.findUniqueOrThrow({
         where: { id: authentication.appUser.id },
         select: {
           doubleXpUntil: true,
           doubleGemsUntil: true,
           doubleGemsPausedAt: true,
         },
-      })
+      }))
       const now = new Date()
       const xpMultiplier = user.doubleXpUntil && user.doubleXpUntil > now ? 2 : 1
       const gemBoostActive = Boolean(user.doubleGemsPausedAt)
@@ -167,6 +201,8 @@ export async function POST(request: Request) {
           `node:${node.id}:completion`,
           REWARDS.firstCompletionXp * xpMultiplier,
           REWARDS.firstCompletionGems * gemMultiplier,
+          operationTimings,
+          'rewards.completion',
         )
         if (awarded) {
           xpAwarded += REWARDS.firstCompletionXp * xpMultiplier
@@ -185,6 +221,8 @@ export async function POST(request: Request) {
             `node:${node.id}:treasure`,
             treasureXp,
             treasureGems,
+            operationTimings,
+            'rewards.treasure',
           )
           if (treasureAwarded) {
             xpAwarded += treasureXp
@@ -199,24 +237,50 @@ export async function POST(request: Request) {
           `node:${node.id}:perfect`,
           REWARDS.perfectQuizXp * xpMultiplier,
           0,
+          operationTimings,
+          'rewards.perfectQuiz',
         )
         if (awarded) xpAwarded += REWARDS.perfectQuizXp * xpMultiplier
       }
-      await recordActivityDay(transaction, authentication.appUser.id, now)
-      const questRewards = await syncDailyQuestRewards(transaction, authentication.appUser.id, now)
+      await recordActivityDay(transaction, authentication.appUser.id, now, operationTimings)
+      const questRewards = await syncDailyQuestRewards(transaction, authentication.appUser.id, now, operationTimings)
       xpAwarded += questRewards.xpAwarded
-      return { alreadyCompleted: false, score, xpAwarded, gemsAwarded }
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      return { alreadyCompleted: false, score, xpAwarded, gemsAwarded, quests: questRewards.quests }
+    }, {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      maxWait: 10_000,
+      timeout: 30_000,
+    })
 
-    const profile = await getAppProfile(authentication.appUser.id)
+    transactionMs = Math.round(performance.now() - transactionStartedAt)
+    const profileStartedAt = performance.now()
+    const profile = await getAppProfile(authentication.appUser.id, operationTimings)
+    profileMs = Math.round(performance.now() - profileStartedAt)
     if (!profile) return NextResponse.json({ error: 'Your learner account could not be found.' }, { status: 404 })
+    const totalMs = Math.round(performance.now() - requestStartedAt)
+    console.info('Progress completion request timing.', {
+      authenticationMs,
+      tokenVerificationMs,
+      appUserLookupMs,
+      nodeLookupMs,
+      transactionMs,
+      profileMs,
+      operationTimings,
+      totalMs,
+    })
     return NextResponse.json({
       completed: true,
       score: result.score,
       alreadyCompleted: result.alreadyCompleted,
       rewards: { xp: result.xpAwarded, gems: result.gemsAwarded },
       profile,
-    }, { headers: { 'Cache-Control': 'no-store' } })
+      quests: result.quests,
+    }, {
+      headers: {
+        'Cache-Control': 'no-store',
+        'Server-Timing': `token;dur=${tokenVerificationMs}, user-lookup;dur=${appUserLookupMs}, node;dur=${nodeLookupMs}, transaction;dur=${transactionMs}, profile;dur=${profileMs}, total;dur=${totalMs}`,
+      },
+    })
   } catch (error) {
     if (error instanceof Error && error.message === 'QUIZ_ATTEMPT_NOT_FOUND') {
       return NextResponse.json({ error: 'This quiz attempt is unavailable.' }, { status: 404 })
@@ -225,6 +289,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Answer every question before finishing the quiz.' }, { status: 409 })
     }
     console.error('Failed to save learner progress.', error)
+    console.error('Progress completion request timing.', {
+      authenticationMs,
+      tokenVerificationMs,
+      appUserLookupMs,
+      nodeLookupMs,
+      transactionMs,
+      operationTimings,
+      totalMs: Math.round(performance.now() - requestStartedAt),
+    })
     return NextResponse.json({ error: 'Could not save learning progress.' }, { status: 500 })
   }
 }

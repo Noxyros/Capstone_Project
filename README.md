@@ -18,7 +18,7 @@ Uploads are limited to 12 MB. The API applies a small in-memory per-IP request l
 
 ## Database and curriculum
 
-Prisma uses one curriculum hierarchy: `Grade` → `Subject` → `Chapter` → `RoadmapNode` → `Question` → `Option`. A subject may be owned by a teacher account through `User.role` and `Subject.createdById`. The `SubjectEnrollment` model exists, but the current learner feed includes all published subjects rather than applying enrollment filtering. Learner completion is stored separately from shared curriculum in `NodeProgress` and `UserProgress`.
+Prisma uses one curriculum hierarchy: `Grade` → `Subject` → `Chapter` → `RoadmapNode` → `Question` → `Option`. Teacher and admin accounts share access to curriculum subjects; `Subject.createdById` records who first created a subject. The `SubjectEnrollment` model exists, but the current learner feed includes all published subjects rather than applying enrollment filtering. Learner completion is stored separately from shared curriculum in `NodeProgress` and `UserProgress`.
 
 Apply checked-in schema changes with `npx prisma migrate deploy`. Do not run `prisma/seed.ts` against a database containing data you need: it clears and recreates prototype records. The seed now refuses to run unless `ALLOW_DESTRUCTIVE_SEED=true` is set explicitly; only use it with a disposable development database.
 

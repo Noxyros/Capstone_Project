@@ -2,7 +2,24 @@ import { isDailyQuestProgress, jakartaDateKey, type DailyQuestProgress } from '@
 
 const CACHE_PREFIX = 'questly_daily_quests:v3:'
 const CACHE_TTL_MS = 10 * 60 * 1000
+export const DAILY_QUESTS_UPDATED_EVENT = 'questly:daily-quests-updated'
 const memoryCache = new Map<string, { date: string; expiresAt: number; quests: DailyQuestProgress[] }>()
+const requests = new Map<string, Promise<void>>()
+
+export function shareDailyQuestRequest(userId: string, request: () => Promise<void>): Promise<void> {
+  if (!userId) return request()
+  const key = `${userId}:${jakartaDateKey()}`
+  const existing = requests.get(key)
+  if (existing) return existing
+
+  const shared = request()
+  requests.set(key, shared)
+  void shared.then(
+    () => { if (requests.get(key) === shared) requests.delete(key) },
+    () => { if (requests.get(key) === shared) requests.delete(key) },
+  )
+  return shared
+}
 
 export function getCachedDailyQuests(userId: string): {
   quests: DailyQuestProgress[]
@@ -69,6 +86,7 @@ export function cacheDailyQuests(userId: string, quests: DailyQuestProgress[]): 
   } catch (error) {
     console.warn('Could not cache daily quests for this browser tab.', error)
   }
+  window.dispatchEvent(new CustomEvent(DAILY_QUESTS_UPDATED_EVENT, { detail: { userId } }))
 }
 
 export function invalidateDailyQuestCache(userId?: string): void {

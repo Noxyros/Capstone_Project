@@ -17,6 +17,7 @@ export default function SubmoduleRoadmapPage() {
   const params = useParams<{ id: string; submoduleId: string }>()
   const { id: chapterId, submoduleId } = params
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
+  const [isLoading, setIsLoading] = useState(() => getCachedCurriculum(undefined, curriculumScope) === null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -27,6 +28,7 @@ export default function SubmoduleRoadmapPage() {
         console.error('Failed to load submodule roadmap.', loadError)
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this submodule.')
       })
+      .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
   }, [chapterId, curriculumScope, submoduleId])
 
@@ -49,7 +51,7 @@ export default function SubmoduleRoadmapPage() {
         <div className="min-w-0">
           <span className="block truncate text-xs font-bold uppercase tracking-wide text-slate-400">{chapter?.title}</span>
           <h1 className="truncate text-2xl font-extrabold text-slate-700">
-            {submodule?.title ?? t('Unknown submodule', 'Submodul tidak dikenal')}
+            {submodule?.title ?? (isLoading ? t('Loading submodule…', 'Memuat submodul…') : t('Unknown submodule', 'Submodul tidak dikenal'))}
           </h1>
         </div>
       </header>
@@ -57,6 +59,10 @@ export default function SubmoduleRoadmapPage() {
       <div className="relative overflow-hidden rounded-3xl border-2 border-slate-200 bg-slate-50 p-4 sm:p-8">
         {error ? (
           <p role="alert" className="py-10 text-center font-bold text-rose-700">{error}</p>
+        ) : isLoading && !submodule ? (
+          <p role="status" className="py-10 text-center font-bold text-slate-500">
+            {t('Loading your learning path…', 'Memuat peta belajarmu…')}
+          </p>
         ) : nodes.length ? (
           <Roadmap nodes={nodes} chapterId={chapterId} />
         ) : (

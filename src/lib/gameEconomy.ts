@@ -37,6 +37,22 @@ export const POWER_UP_CATALOG = {
   },
 } satisfies Record<PowerUpType, { name: string; description: string; icon: string }>
 
+export type OperationTimings = Record<string, number>
+
+export async function measureTimedOperation<T>(
+  timings: OperationTimings | undefined,
+  name: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  if (!timings) return operation()
+  const startedAt = performance.now()
+  try {
+    return await operation()
+  } finally {
+    timings[name] = (timings[name] ?? 0) + Math.round(performance.now() - startedAt)
+  }
+}
+
 export function shiftDateKey(dateKey: string, days: number): string {
   const [year, month, day] = dateKey.split('-').map(Number)
   return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10)
@@ -49,7 +65,19 @@ export function jakartaWeekStart(dateKey = jakartaCalendarDateKey()): string {
   return shiftDateKey(dateKey, -daysSinceMonday)
 }
 
-export async function getAppProfile(userId: string): Promise<AppProfile | null> {
+export function getEffectiveStreak(
+  streak: number,
+  lastActivityDate: string | null,
+  today: string,
+  streakFreezeCount: number,
+): number {
+  if (!lastActivityDate || streak <= 0) return 0
+  if (lastActivityDate === today || lastActivityDate === shiftDateKey(today, -1)) return streak
+  if (streakFreezeCount > 0 && lastActivityDate === shiftDateKey(today, -2)) return streak
+  return 0
+}
+
+export async function getAppProfile(userId: string, timings?: OperationTimings): Promise<AppProfile | null> {
   const today = jakartaCalendarDateKey()
   const activityDate = jakartaDateKey()
   const weekStart = jakartaWeekStart(today)
@@ -57,7 +85,7 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
   const weekStartInstant = new Date(`${weekStart}T00:00:00+07:00`)
 
   const [user, weeklyTotals, students] = await Promise.all([
-    prisma.user.findUnique({
+    measureTimedOperation(timings, 'profile.userQueryMs', () => prisma.user.findUnique({
       where: { id: userId },
       select: {
         id: true,
@@ -67,6 +95,7 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
         avatarUrl: true,
         role: true,
         streak: true,
+        lastActivityDate: true,
         totalXp: true,
         gems: true,
         hearts: true,
@@ -86,19 +115,20 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
           select: { date: true },
         },
       },
-    }),
-    prisma.rewardEvent.groupBy({
+    })),
+    measureTimedOperation(timings, 'profile.weeklyXpQueryMs', () => prisma.rewardEvent.groupBy({
       by: ['userId'],
       where: { createdAt: { gte: weekStartInstant } },
       _sum: { xpDelta: true },
-    }),
-    prisma.user.findMany({
+    })),
+    measureTimedOperation(timings, 'profile.studentListQueryMs', () => prisma.user.findMany({
       where: { role: 'STUDENT' },
       select: { id: true, name: true, handle: true },
-    }),
+    })),
   ])
   if (!user) return null
 
+  const rankCalculationStartedAt = performance.now()
   const xpByUser = new Map(weeklyTotals.map((entry) => [entry.userId, entry._sum.xpDelta ?? 0]))
   const totals = students
     .map((student) => ({
@@ -109,6 +139,8 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
     .sort((left, right) => right.xp - left.xp || left.displayName.localeCompare(right.displayName))
   const weeklyXp = totals.find((entry) => entry.userId === userId)?.xp ?? 0
   const rank = Math.max(1, totals.findIndex((entry) => entry.userId === userId) + 1)
+  if (timings) timings['profile.rankCalculationMs'] = Math.round(performance.now() - rankCalculationStartedAt)
+  const streakFreezeCount = user.powerUps[0]?.quantity ?? 0
 
   return {
     id: user.id,
@@ -117,7 +149,7 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
     handle: user.handle,
     avatarUrl: user.avatarUrl,
     role: user.role,
-    streak: user.streak,
+    streak: getEffectiveStreak(user.streak, user.lastActivityDate, today, streakFreezeCount),
     totalXp: user.totalXp,
     weeklyXp,
     gems: user.gems,
@@ -127,7 +159,7 @@ export async function getAppProfile(userId: string): Promise<AppProfile | null> 
     doubleXpUntil: user.doubleXpUntil?.toISOString() ?? null,
     doubleGemsUntil: user.doubleGemsUntil?.toISOString() ?? null,
     doubleGemsPausedAt: user.doubleGemsPausedAt?.toISOString() ?? null,
-    streakFreezeCount: user.powerUps[0]?.quantity ?? 0,
+    streakFreezeCount,
     createdAt: user.createdAt.toISOString(),
     rank,
     activityDates: user.activityDays.map((activity) => activity.date),
@@ -138,45 +170,46 @@ export async function recordActivityDay(
   transaction: Prisma.TransactionClient,
   userId: string,
   now = new Date(),
+  timings?: OperationTimings,
 ): Promise<void> {
   const date = jakartaDateKey(now)
-  const inserted = await transaction.activityDay.createMany({
+  const inserted = await measureTimedOperation(timings, 'streak.activityDayInsertMs', () => transaction.activityDay.createMany({
     data: [{ id: crypto.randomUUID(), userId, date }],
     skipDuplicates: true,
-  })
+  }))
   if (inserted.count === 0) return
 
-  const user = await transaction.user.findUnique({
+  const user = await measureTimedOperation(timings, 'streak.userReadMs', () => transaction.user.findUnique({
     where: { id: userId },
     select: { streak: true, lastActivityDate: true },
-  })
+  }))
   if (!user || user.lastActivityDate === date) return
 
   let nextStreak = user.lastActivityDate === shiftDateKey(date, -1)
     ? user.streak + 1
     : 1
   if (user.lastActivityDate === shiftDateKey(date, -2)) {
-    const freeze = await transaction.userPowerUp.findFirst({
+    const freeze = await measureTimedOperation(timings, 'streak.freezeReadMs', () => transaction.userPowerUp.findFirst({
       where: {
         userId,
         quantity: { gt: 0 },
         powerUp: { code: PowerUpType.STREAK_FREEZE },
       },
       select: { id: true },
-    })
+    }))
     if (freeze) {
-      const consumed = await transaction.userPowerUp.updateMany({
+      const consumed = await measureTimedOperation(timings, 'streak.freezeUpdateMs', () => transaction.userPowerUp.updateMany({
         where: { id: freeze.id, quantity: { gt: 0 } },
         data: { quantity: { decrement: 1 } },
-      })
+      }))
       if (consumed.count === 1) nextStreak = user.streak + 1
     }
   }
 
-  await transaction.user.update({
+  await measureTimedOperation(timings, 'streak.userUpdateMs', () => transaction.user.update({
     where: { id: userId },
     data: { streak: nextStreak, lastActivityDate: date, lastActive: now },
-  })
+  }))
 }
 
 export async function recordReward(
@@ -185,8 +218,10 @@ export async function recordReward(
   idempotencyKey: string,
   xpDelta: number,
   gemsDelta: number,
+  timings?: OperationTimings,
+  timingPrefix = 'reward',
 ): Promise<boolean> {
-  const inserted = await transaction.rewardEvent.createMany({
+  const inserted = await measureTimedOperation(timings, `${timingPrefix}.eventInsertMs`, () => transaction.rewardEvent.createMany({
     data: [{
       id: crypto.randomUUID(),
       userId,
@@ -195,15 +230,15 @@ export async function recordReward(
       gemsDelta,
     }],
     skipDuplicates: true,
-  })
+  }))
   if (inserted.count === 0) return false
 
-  await transaction.user.update({
+  await measureTimedOperation(timings, `${timingPrefix}.userUpdateMs`, () => transaction.user.update({
     where: { id: userId },
     data: {
       ...(xpDelta ? { totalXp: { increment: xpDelta } } : {}),
       ...(gemsDelta ? { gems: { increment: gemsDelta } } : {}),
     },
-  })
+  }))
   return true
 }

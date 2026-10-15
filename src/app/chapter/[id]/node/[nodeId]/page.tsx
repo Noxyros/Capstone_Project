@@ -1,18 +1,19 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter, useParams } from 'next/navigation'
 import { CheckCircle2, Gift, Heart, Infinity as InfinityIcon, Swords, X, XCircle, Trophy } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
-import { loadCurriculum, saveNodeProgress } from '@/src/lib/curriculumClient'
+import { loadCurriculum } from '@/src/lib/curriculumClient'
 import { getCurriculumResourceFormat, type CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
 import { useAuth } from '@/src/context/AuthContext'
-import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
+import type { AppProfile } from '@/src/lib/appProfile'
 import AppLoadingScreen from '@/src/components/shared/AppLoadingScreen'
+import { enqueueNodeProgress } from '@/src/lib/progressSyncClient'
 
 type QuizOption = {
   id: string
@@ -29,7 +30,9 @@ type QuizQuestion = {
 type CheckedAnswerResult = {
   isCorrect: boolean
   correctOptionIds: string[]
-  profile: AppProfile
+  hearts: number
+  maxHearts: number
+  superMode: boolean
 }
 
 function isCheckedAnswerResult(value: unknown): value is CheckedAnswerResult {
@@ -40,8 +43,14 @@ function isCheckedAnswerResult(value: unknown): value is CheckedAnswerResult {
     && 'correctOptionIds' in value
     && Array.isArray(value.correctOptionIds)
     && value.correctOptionIds.every((id) => typeof id === 'string')
-    && 'profile' in value
-    && isAppProfile(value.profile)
+    && 'hearts' in value
+    && typeof value.hearts === 'number'
+    && Number.isInteger(value.hearts)
+    && 'maxHearts' in value
+    && typeof value.maxHearts === 'number'
+    && Number.isInteger(value.maxHearts)
+    && 'superMode' in value
+    && typeof value.superMode === 'boolean'
 }
 
 type LessonContent =
@@ -57,16 +66,26 @@ type NodeData =
 export default function NodeActivityPage() {
   const { t } = useLanguage()
   const { hearts, unlimitedHearts, setSuperMode } = useUser()
-  const { user, updateProfile } = useAuth()
+  const { user, updateProfile, updateProfileFields } = useAuth()
   const curriculumScope = user?.id ?? 'public'
   const router = useRouter()
   const params = useParams<{ id: string; nodeId: string }>()
   const { id: chapterId, nodeId } = params
   const [nodeData, setNodeData] = useState<NodeData | null>(null)
+  const [nodeSubmoduleId, setNodeSubmoduleId] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [progressError, setProgressError] = useState('')
+  const [isSavingProgress, setIsSavingProgress] = useState(false)
   const [isExitDialogOpen, setIsExitDialogOpen] = useState(false)
+  const progressRequestInFlightRef = useRef(false)
+  const roadmapPath = nodeSubmoduleId
+    ? `/chapter/${chapterId}/submodule/${nodeSubmoduleId}`
+    : `/chapter/${chapterId}`
+
+  useEffect(() => {
+    router.prefetch(roadmapPath)
+  }, [roadmapPath, router])
 
   useEffect(() => {
     let active = true
@@ -79,6 +98,7 @@ export default function NodeActivityPage() {
           setLoadError(t('This learning activity is unavailable.', 'Aktivitas belajar ini tidak tersedia.'))
           return
         }
+        setNodeSubmoduleId(node.submoduleId ?? null)
         if (node.type === 'quiz' || node.type === 'boss') {
           setNodeData({
             type: 'quiz',
@@ -140,14 +160,20 @@ export default function NodeActivityPage() {
   }, [isExitDialogOpen])
 
   const completeActivity = async (attemptId?: string) => {
+    if (progressRequestInFlightRef.current) return
+    progressRequestInFlightRef.current = true
+    setIsSavingProgress(true)
     setProgressError('')
     try {
-      const result = await saveNodeProgress(nodeId, attemptId)
-      updateProfile(result.profile)
-      router.push(`/chapter/${chapterId}`)
+      if (!user?.id) throw new Error(t('Sign in to save your progress.', 'Masuk untuk menyimpan progresmu.'))
+      enqueueNodeProgress(user.id, nodeId, attemptId)
+      router.push(roadmapPath)
     } catch (error) {
-      console.warn('Failed to save completed activity.', error)
-      setProgressError(error instanceof Error ? error.message : t('Could not save your progress. Please try again.', 'Tidak dapat menyimpan progres. Silakan coba lagi.'))
+      console.error('Could not save completed activity on this device.', error)
+      setProgressError(error instanceof Error ? error.message : t('Could not save your progress on this device. Please try again.', 'Tidak dapat menyimpan progres di perangkat ini. Silakan coba lagi.'))
+    } finally {
+      progressRequestInFlightRef.current = false
+      setIsSavingProgress(false)
     }
   }
 
@@ -156,7 +182,7 @@ export default function NodeActivityPage() {
       setIsExitDialogOpen(true)
       return
     }
-    router.push(`/chapter/${chapterId}`)
+    router.push(roadmapPath)
   }
 
   if (isLoading) return <AppLoadingScreen message={t('Preparing your activity…', 'Menyiapkan aktivitasmu…')} />
@@ -201,11 +227,15 @@ export default function NodeActivityPage() {
         </div>
       </div>
 
-      {progressError && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{progressError}</p>}
-
       <div className="flex flex-1 flex-col justify-center">
         {nodeData.type === 'lesson' ? (
-          <LessonActivity title={nodeData.title} content={nodeData.content} onComplete={() => { void completeActivity() }} />
+          <LessonActivity
+            title={nodeData.title}
+            content={nodeData.content}
+            onComplete={() => { void completeActivity() }}
+            isCompleting={isSavingProgress}
+            error={progressError}
+          />
         ) : nodeData.type === 'treasure' ? (
           <TreasureActivity
             title={nodeData.title}
@@ -213,6 +243,8 @@ export default function NodeActivityPage() {
             rewardAmount={nodeData.rewardAmount}
             isCompleted={nodeData.isCompleted}
             onClaim={() => { void completeActivity() }}
+            isClaiming={isSavingProgress}
+            error={progressError}
             t={t}
           />
         ) : (
@@ -222,10 +254,12 @@ export default function NodeActivityPage() {
             questions={nodeData.questions}
             isBoss={nodeData.isBoss}
             onComplete={(attemptId) => { void completeActivity(attemptId) }}
+            isCompleting={isSavingProgress}
+            error={progressError}
             hearts={hearts}
             superMode={unlimitedHearts}
             setSuperMode={setSuperMode}
-            onProfileUpdate={updateProfile}
+            onProfileUpdate={updateProfileFields}
           />
         )}
       </div>
@@ -268,7 +302,7 @@ export default function NodeActivityPage() {
                 type="button"
                 onClick={() => {
                   setIsExitDialogOpen(false)
-                  router.push(`/chapter/${chapterId}`)
+                  router.push(roadmapPath)
                 }}
                 className="flex-1 rounded-2xl border-2 border-slate-200 bg-slate-50 px-4 py-3 font-extrabold text-slate-600 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100"
               >
@@ -297,6 +331,8 @@ function TreasureActivity({
   rewardAmount,
   isCompleted,
   onClaim,
+  isClaiming,
+  error,
   t,
 }: {
   title: string
@@ -304,6 +340,8 @@ function TreasureActivity({
   rewardAmount: number
   isCompleted: boolean
   onClaim: () => void
+  isClaiming: boolean
+  error: string
   t: (en: string, id: string) => string
 }) {
   return (
@@ -325,20 +363,37 @@ function TreasureActivity({
         </div>
       </div>
       <div className="p-4 sm:p-6">
+        {error && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
         <button
           type="button"
           onClick={onClaim}
-          disabled={isCompleted}
+          disabled={isCompleted || isClaiming}
           className="w-full rounded-2xl border-b-4 border-amber-800 bg-amber-500 px-5 py-4 font-extrabold text-white transition-colors hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
         >
-          {isCompleted ? t('Already collected', 'Sudah diklaim') : t('Open treasure', 'Buka peti harta')}
+          {isCompleted
+            ? t('Already collected', 'Sudah diklaim')
+            : isClaiming
+              ? t('Saving...', 'Menyimpan...')
+              : t('Open treasure', 'Buka peti harta')}
         </button>
       </div>
     </section>
   )
 }
 
-function LessonActivity({ title, content, onComplete }: { title: string; content: LessonContent; onComplete: () => void }) {
+function LessonActivity({
+  title,
+  content,
+  onComplete,
+  isCompleting,
+  error,
+}: {
+  title: string
+  content: LessonContent
+  onComplete: () => void
+  isCompleting: boolean
+  error: string
+}) {
   const { t } = useLanguage()
   const [pdfText, setPdfText] = useState('')
   const media = content.kind === 'poster'
@@ -408,13 +463,18 @@ function LessonActivity({ title, content, onComplete }: { title: string; content
         }}
       />
 
-      <button
-        type="button"
-        onClick={onComplete}
-        className="flex w-full items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-4 rounded-2xl border-b-4 border-indigo-800 transition-all active:border-b-0 active:translate-y-1 shadow-sm"
-      >
-        {t('Continue', 'Lanjutkan')}
-      </button>
+      <div>
+        {error && <p role="alert" className="mb-3 rounded-xl border-2 border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
+        <button
+          type="button"
+          onClick={onComplete}
+          disabled={isCompleting}
+          aria-busy={isCompleting}
+          className="flex min-h-14 w-full items-center justify-center rounded-2xl border-b-4 border-indigo-800 bg-indigo-600 py-4 font-extrabold text-white shadow-sm transition-all hover:bg-indigo-700 active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-70"
+        >
+          {t('Continue', 'Lanjutkan')}
+        </button>
+      </div>
     </div>
   )
 }
@@ -431,6 +491,8 @@ function QuizActivity({
   questions,
   isBoss,
   onComplete,
+  isCompleting,
+  error,
   hearts,
   superMode,
   setSuperMode,
@@ -441,10 +503,12 @@ function QuizActivity({
   questions: QuizQuestion[]
   isBoss: boolean
   onComplete: (attemptId: string) => void
+  isCompleting: boolean
+  error: string
   hearts: number
   superMode: boolean
   setSuperMode: (enabled: boolean) => Promise<boolean>
-  onProfileUpdate: (profile: import('@/src/lib/appProfile').AppProfile) => void
+  onProfileUpdate: (fields: Partial<AppProfile>) => void
 }) {
   const { t } = useLanguage()
   const [currentIndex, setCurrentIndex] = useState(0)
@@ -455,33 +519,29 @@ function QuizActivity({
   const [attemptError, setAttemptError] = useState('')
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false)
   const [isActivatingSuperMode, setIsActivatingSuperMode] = useState(false)
-
-  const handleActivateSuperMode = async () => {
-    setIsActivatingSuperMode(true)
-    setAttemptError('')
-    const enabled = await setSuperMode(true)
-    if (!enabled) {
-      setAttemptError(t(
-        'Could not activate Super Mode. Please try again.',
-        'Tidak dapat mengaktifkan Mode Super. Silakan coba lagi.',
-      ))
-    }
-    setIsActivatingSuperMode(false)
-  }
+  const attemptRequestInFlightRef = useRef(false)
+  const isMountedRef = useRef(false)
 
   useEffect(() => {
-    if (attemptId || isFinished) return
-    if (hearts <= 0 && !superMode) {
+    isMountedRef.current = true
+    return () => { isMountedRef.current = false }
+  }, [])
+
+  const startAttempt = useCallback(async (allowWithoutHearts = false) => {
+    if (attemptId || isFinished || attemptRequestInFlightRef.current) return
+    if (hearts <= 0 && !superMode && !allowWithoutHearts) {
       setAttemptError(t('You are out of hearts. Refill your hearts or activate Super Mode to continue.', 'Kamu kehabisan hati. Isi ulang hati atau aktifkan Mode Super untuk melanjutkan.'))
       return
     }
-    let active = true
+
+    attemptRequestInFlightRef.current = true
     setAttemptError('')
-    void fetch('/api/quiz-attempt', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nodeId }),
-    }).then(async (response) => {
+    try {
+      const response = await fetch('/api/quiz-attempt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nodeId }),
+      })
       const result: unknown = await response.json()
       if (!response.ok) {
         const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
@@ -492,12 +552,34 @@ function QuizActivity({
       if (typeof result !== 'object' || result === null || !('attemptId' in result) || typeof result.attemptId !== 'string') {
         throw new Error(t('The server returned an invalid quiz attempt.', 'Server mengirim sesi kuis yang tidak valid.'))
       }
-      if (active) setAttemptId(result.attemptId)
-    }).catch((error: unknown) => {
-      if (active) setAttemptError(error instanceof Error ? error.message : t('Could not start this quiz.', 'Tidak dapat memulai kuis ini.'))
-    })
-    return () => { active = false }
+      if (isMountedRef.current) setAttemptId(result.attemptId)
+    } catch (error) {
+      if (isMountedRef.current) {
+        setAttemptError(error instanceof Error ? error.message : t('Could not start this quiz.', 'Tidak dapat memulai kuis ini.'))
+      }
+    } finally {
+      attemptRequestInFlightRef.current = false
+    }
   }, [attemptId, hearts, isFinished, nodeId, superMode, t])
+
+  const handleActivateSuperMode = async () => {
+    setIsActivatingSuperMode(true)
+    setAttemptError('')
+    const enabled = await setSuperMode(true)
+    if (enabled) {
+      await startAttempt(true)
+    } else {
+      setAttemptError(t(
+        'Could not activate Super Mode. Please try again.',
+        'Tidak dapat mengaktifkan Mode Super. Silakan coba lagi.',
+      ))
+    }
+    setIsActivatingSuperMode(false)
+  }
+
+  useEffect(() => {
+    void startAttempt()
+  }, [startAttempt])
 
   const currentQuestion = questions[currentIndex]
   const currentResponse = responses[currentIndex]
@@ -549,7 +631,11 @@ function QuizActivity({
       if (!isCheckedAnswerResult(result)) {
         throw new Error(t('The server returned an invalid answer result.', 'Server mengirim hasil jawaban yang tidak valid.'))
       }
-      onProfileUpdate(result.profile)
+      onProfileUpdate({
+        hearts: result.hearts,
+        maxHearts: result.maxHearts,
+        superMode: result.superMode,
+      })
       setCorrectOptionIdsByQuestion((previous) => ({ ...previous, [currentIndex]: result.correctOptionIds }))
       setResponses((previous) => ({
         ...previous,
@@ -586,10 +672,13 @@ function QuizActivity({
         <button
           type="button"
           onClick={() => onComplete(attemptId)}
-          className="flex w-full items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold py-4 rounded-2xl border-b-4 border-indigo-800 transition-all active:border-b-0 active:translate-y-1"
+          disabled={isCompleting}
+          aria-busy={isCompleting}
+          className="flex w-full items-center justify-center rounded-2xl border-b-4 border-indigo-800 bg-indigo-600 py-4 font-extrabold text-white transition-all hover:bg-indigo-700 active:translate-y-1 active:border-b-0 disabled:cursor-wait disabled:opacity-70"
         >
           {t('Finish', 'Selesai')}
         </button>
+        {error && <p role="alert" className="mt-3 rounded-xl border-2 border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
       </div>
     )
   }

@@ -46,7 +46,7 @@ function toCurriculumSubject(
   return {
     id: subject.id,
     name: subject.name,
-    grade: subject.grade.level === 8 || subject.grade.level === 9 ? subject.grade.level : 7,
+    grade: subject.grade.level,
     icon: subject.icon ?? 'book',
     color: (['blue', 'green', 'rose', 'amber', 'purple', 'cyan'].includes(subject.color)
       ? subject.color
@@ -121,7 +121,9 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
     if (!isRecord(subject)) return { error: `${subjectPath} must be an object.` }
     if (!isString(subject.id, 200, false)) return { error: `${subjectPath}.id must be a non-empty string (max 200 characters).` }
     if (!isString(subject.name, 120, false)) return { error: `${subjectPath}.name must be a non-empty string (max 120 characters).` }
-    if (![7, 8, 9].includes(subject.grade as number)) return { error: `${subjectPath}.grade must be 7, 8, or 9.` }
+    if (!Number.isInteger(subject.grade) || (subject.grade as number) < 1 || (subject.grade as number) > 12) {
+      return { error: `${subjectPath}.grade must be an integer between 1 and 12.` }
+    }
     if (!isString(subject.icon, 80)) return { error: `${subjectPath}.icon must be a string (max 80 characters).` }
     if (!['blue', 'green', 'rose', 'amber', 'purple', 'cyan'].includes(subject.color as string)) {
       return { error: `${subjectPath}.color is not supported.` }
@@ -228,9 +230,9 @@ export async function GET(request: Request) {
   }
 
   const subjectWhere: Prisma.SubjectWhereInput = teacherView
-    ? authentication.appUser.role === Role.ADMIN ? {} : { createdById: authentication.appUser.id }
+    ? {}
     : {
-      grade: { level: { in: [7, 8, 9] } },
+      grade: { level: { gte: 1, lte: 12 } },
       chapters: { some: { isPublished: true, nodes: { some: { isPublished: true } } } },
     }
   try {
@@ -309,9 +311,6 @@ export async function PUT(request: Request) {
           },
         },
       })
-      if (existingSubjects.some((subject) => authentication.appUser.role !== Role.ADMIN && subject.createdById !== authentication.appUser.id)) {
-        throw new Error('CURRICULUM_OWNERSHIP_CONFLICT')
-      }
       const existingChapters = chapterIds.length
         ? await transaction.chapter.findMany({ where: { id: { in: chapterIds } }, select: { id: true, subjectId: true } })
         : []
@@ -335,16 +334,12 @@ export async function PUT(request: Request) {
         throw new Error('CURRICULUM_OWNERSHIP_CONFLICT')
       }
 
-      const ownedSubjectWhere: Prisma.SubjectWhereInput = authentication.appUser.role === Role.ADMIN
-        ? {}
-        : { createdById: authentication.appUser.id }
-      const existingOwned = await transaction.subject.findMany({
-        where: ownedSubjectWhere,
+      const existingSubjectIds = await transaction.subject.findMany({
         select: { id: true },
       })
-      const removedIds = existingOwned.map((subject) => subject.id).filter((id) => !subjectIds.has(id))
+      const removedIds = existingSubjectIds.map((subject) => subject.id).filter((id) => !subjectIds.has(id))
       if (removedIds.length) {
-        await transaction.subject.deleteMany({ where: { id: { in: removedIds }, ...ownedSubjectWhere } })
+        await transaction.subject.deleteMany({ where: { id: { in: removedIds } } })
       }
 
       for (const subject of subjects) {

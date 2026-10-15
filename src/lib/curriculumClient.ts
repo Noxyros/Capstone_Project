@@ -1,6 +1,8 @@
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
-import { invalidateDailyQuestCache } from '@/src/lib/dailyQuestClient'
+import { cacheDailyQuests } from '@/src/lib/dailyQuestClient'
+import { invalidateWeakSkillsCache } from '@/src/lib/practiceClient'
+import { isDailyQuestProgress, type DailyQuestProgress } from '@/src/lib/dailyQuests'
 
 const CURRICULUM_CACHE_TTL_MS = 5 * 60 * 1000
 const CURRICULUM_CACHE_PREFIX = 'questly_curriculum:v4:'
@@ -50,7 +52,12 @@ export function getCachedCurriculum(view?: 'teacher', scope = 'public'): Curricu
       sessionStorage.removeItem(`${CURRICULUM_CACHE_PREFIX}${key}`)
       return null
     }
-    curriculumCache.set(key, { subjects: parsed.subjects, fetchedAt: 0 })
+    const fetchedAt = 'fetchedAt' in parsed
+      && typeof parsed.fetchedAt === 'number'
+      && parsed.fetchedAt <= Date.now()
+      ? parsed.fetchedAt
+      : 0
+    curriculumCache.set(key, { subjects: parsed.subjects, fetchedAt })
     return parsed.subjects
   } catch (error) {
     console.warn('Could not restore cached curriculum for this browser tab.', error)
@@ -70,14 +77,9 @@ async function readError(response: Response, fallback: string): Promise<string> 
   return fallback
 }
 
-export async function loadCurriculum(view?: 'teacher', scope = 'public'): Promise<CurriculumSubject[]> {
-  const key = cacheKey(view, scope)
-  const cached = curriculumCache.get(key)
-  if (cached && Date.now() - cached.fetchedAt < CURRICULUM_CACHE_TTL_MS) return cached.subjects
-
+function requestCurriculum(view: 'teacher' | undefined, scope: string, key: string): Promise<CurriculumSubject[]> {
   const inFlight = curriculumRequests.get(key)
   if (inFlight) return inFlight
-
   const request = (async () => {
     const url = view ? `/api/curriculum?view=${view}` : '/api/curriculum'
     const response = await fetch(url, { cache: 'no-store' })
@@ -87,12 +89,32 @@ export async function loadCurriculum(view?: 'teacher', scope = 'public'): Promis
       throw new Error('The server returned invalid curriculum data.')
     }
     if (!isCurriculumSubjects(result.subjects)) throw new Error('The server returned invalid curriculum data.')
-    const subjects = result.subjects
-    curriculumCache.set(key, { subjects, fetchedAt: Date.now() })
+    const existing = curriculumCache.get(key)?.subjects
+    const completedNodeIds = new Set(existing?.flatMap((subject) =>
+      subject.chapters.flatMap((chapter) =>
+        chapter.nodes.filter((node) => node.status === 'completed').map((node) => node.id))) ?? [])
+    const subjects = result.subjects.map((subject) => ({
+      ...subject,
+      chapters: subject.chapters.map((chapter) => {
+        const nodes = chapter.nodes.map((node) => completedNodeIds.has(node.id)
+          ? { ...node, status: 'completed' as const }
+          : node)
+        return {
+          ...chapter,
+          nodes,
+          chaptersStatus: nodes.length > 0 && nodes.every((node) => node.status === 'completed')
+            ? 'completed' as const
+            : chapter.chaptersStatus === 'completed' ? 'in_progress' as const : chapter.chaptersStatus,
+        }
+      }),
+    }))
+    const fetchedAt = Date.now()
+    curriculumCache.set(key, { subjects, fetchedAt })
     try {
       sessionStorage.setItem(`${CURRICULUM_CACHE_PREFIX}${key}`, JSON.stringify({
         subjects,
-        expiresAt: Date.now() + CURRICULUM_SNAPSHOT_TTL_MS,
+        fetchedAt,
+        expiresAt: fetchedAt + CURRICULUM_SNAPSHOT_TTL_MS,
       }))
     } catch (error) {
       console.warn('Could not cache curriculum for this browser tab.', error)
@@ -100,11 +122,31 @@ export async function loadCurriculum(view?: 'teacher', scope = 'public'): Promis
     return subjects
   })()
   curriculumRequests.set(key, request)
-  try {
-    return await request
-  } finally {
-    if (curriculumRequests.get(key) === request) curriculumRequests.delete(key)
+  void request.then(
+    () => { if (curriculumRequests.get(key) === request) curriculumRequests.delete(key) },
+    () => { if (curriculumRequests.get(key) === request) curriculumRequests.delete(key) },
+  )
+  return request
+}
+
+export function loadCurriculum(view?: 'teacher', scope = 'public'): Promise<CurriculumSubject[]> {
+  const key = cacheKey(view, scope)
+  getCachedCurriculum(view, scope)
+  const cached = curriculumCache.get(key)
+  if (cached && Date.now() - cached.fetchedAt < CURRICULUM_CACHE_TTL_MS) {
+    return Promise.resolve(cached.subjects)
   }
+
+  const inFlight = curriculumRequests.get(key)
+  if (cached) {
+    if (!inFlight) {
+      void requestCurriculum(view, scope, key).catch((error: unknown) => {
+        console.error('Failed to refresh cached learner curriculum in the background.', error)
+      })
+    }
+    return Promise.resolve(cached.subjects)
+  }
+  return requestCurriculum(view, scope, key)
 }
 
 export function invalidateCurriculumCache(scope?: string): void {
@@ -138,7 +180,51 @@ export async function saveCurriculum(subjects: CurriculumSubject[]): Promise<voi
   invalidateCurriculumCache()
 }
 
-export async function saveNodeProgress(nodeId: string, attemptId?: string): Promise<{ profile: AppProfile; rewards: { xp: number; gems: number } }> {
+function storeCurriculumSnapshot(key: string, subjects: CurriculumSubject[], fetchedAt: number): void {
+  try {
+    sessionStorage.setItem(`${CURRICULUM_CACHE_PREFIX}${key}`, JSON.stringify({
+      subjects,
+      fetchedAt,
+      expiresAt: Date.now() + CURRICULUM_SNAPSHOT_TTL_MS,
+    }))
+  } catch (error) {
+    console.warn('Could not cache curriculum for this browser tab.', error)
+  }
+}
+
+export function markNodeCompletedLocally(userId: string, nodeId: string): void {
+  if (!userId || typeof window === 'undefined') return
+  const key = cacheKey(undefined, userId)
+  const existing = getCachedCurriculum(undefined, userId)
+  if (!existing) return
+
+  let changed = false
+  const subjects = existing.map((subject) => ({
+    ...subject,
+    chapters: subject.chapters.map((chapter) => {
+      const nodes = chapter.nodes.map((node) => {
+        if (node.id !== nodeId || node.status === 'completed') return node
+        changed = true
+        return { ...node, status: 'completed' as const }
+      })
+      const chaptersStatus = nodes.length > 0 && nodes.every((node) => node.status === 'completed')
+        ? 'completed' as const
+        : chapter.chaptersStatus === 'completed' ? 'in_progress' as const : chapter.chaptersStatus
+      return { ...chapter, nodes, chaptersStatus }
+    }),
+  }))
+  if (!changed) return
+
+  const fetchedAt = Date.now()
+  curriculumCache.set(key, { subjects, fetchedAt })
+  storeCurriculumSnapshot(key, subjects, fetchedAt)
+}
+
+export async function saveNodeProgress(nodeId: string, attemptId?: string): Promise<{
+  profile: AppProfile
+  rewards: { xp: number; gems: number }
+  quests: DailyQuestProgress[]
+}> {
   const response = await fetch('/api/progress', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -158,10 +244,18 @@ export async function saveNodeProgress(nodeId: string, attemptId?: string): Prom
     || typeof result.rewards.xp !== 'number'
     || !('gems' in result.rewards)
     || typeof result.rewards.gems !== 'number'
+    || !('quests' in result)
+    || !Array.isArray(result.quests)
+    || !result.quests.every(isDailyQuestProgress)
   ) {
     throw new Error('The server returned invalid learning reward data.')
   }
-  invalidateDailyQuestCache()
-  invalidateCurriculumCache()
-  return { profile: result.profile, rewards: { xp: result.rewards.xp, gems: result.rewards.gems } }
+  cacheDailyQuests(result.profile.id, result.quests)
+  invalidateWeakSkillsCache()
+  markNodeCompletedLocally(result.profile.id, nodeId)
+  return {
+    profile: result.profile,
+    rewards: { xp: result.rewards.xp, gems: result.rewards.gems },
+    quests: result.quests,
+  }
 }
