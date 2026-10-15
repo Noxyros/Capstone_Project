@@ -1,11 +1,23 @@
-import { RoadmapNodeType, type Prisma } from '@prisma/client'
+import type { Prisma } from '@prisma/client'
 import { getDailyQuestSet, jakartaDateKey, type DailyQuest } from '@/src/lib/dailyQuests'
-import { recordReward, shiftDateKey } from '@/src/lib/gameEconomy'
+import { measureTimedOperation, recordReward, shiftDateKey, type OperationTimings } from '@/src/lib/gameEconomy'
 
 export type DailyQuestSnapshot = DailyQuest & {
   current: number
   completed: boolean
   rewarded: boolean
+}
+
+type DailyQuestMetricsRow = {
+  publishedNodeCount: bigint
+  lessonNodeCount: bigint
+  quizNodeCount: bigint
+  publishedChapterCount: bigint
+  lessons: bigint
+  quizzes: bigint
+  perfectQuizzes: bigint
+  activities: bigint
+  chapters: bigint
 }
 
 function getDateRange(date: string): { start: Date; end: Date } {
@@ -19,55 +31,95 @@ export async function syncDailyQuestRewards(
   transaction: Prisma.TransactionClient,
   userId: string,
   now = new Date(),
+  timings?: OperationTimings,
 ): Promise<{ quests: DailyQuestSnapshot[]; xpAwarded: number }> {
   const date = jakartaDateKey(now)
   const { start, end } = getDateRange(date)
-  const [nodeCounts, chapterCount, activities, quizAttempts] = await Promise.all([
-    transaction.roadmapNode.groupBy({
-      by: ['type'],
-      where: { isPublished: true, chapter: { isPublished: true } },
-      _count: { _all: true },
-    }),
-    transaction.chapter.count({
-      where: { isPublished: true, nodes: { some: { isPublished: true } } },
-    }),
-    transaction.nodeProgress.findMany({
-      where: { userId, completedAt: { gte: start, lt: end } },
-      select: { node: { select: { type: true, chapterId: true } } },
-    }),
-    transaction.quizAttempt.findMany({
-      where: { userId, completedAt: { gte: start, lt: end } },
-      select: {
-        node: { select: { _count: { select: { questions: true } } } },
-        answers: { select: { isCorrect: true } },
-      },
-    }),
-  ])
-  if (nodeCounts.length === 0) return { quests: [], xpAwarded: 0 }
+  const [metrics] = await measureTimedOperation(timings, 'quests.metricsQueryMs', () =>
+    transaction.$queryRaw<DailyQuestMetricsRow[]>`
+      WITH node_availability AS (
+        SELECT
+          COUNT(*) AS published_node_count,
+          COUNT(*) FILTER (WHERE node.type::text = 'LESSON') AS lesson_node_count,
+          COUNT(*) FILTER (WHERE node.type::text IN ('QUIZ', 'BOSS')) AS quiz_node_count,
+          COUNT(DISTINCT node."chapterId") AS published_chapter_count
+        FROM "RoadmapNode" AS node
+        INNER JOIN "Chapter" AS chapter ON chapter.id = node."chapterId"
+        WHERE node."isPublished" = TRUE
+          AND chapter."isPublished" = TRUE
+      ),
+      activity_metrics AS (
+        SELECT
+          COUNT(*) AS activities,
+          COUNT(*) FILTER (WHERE node.type::text = 'LESSON') AS lessons,
+          COUNT(DISTINCT node."chapterId") AS chapters
+        FROM "NodeProgress" AS progress
+        INNER JOIN "RoadmapNode" AS node ON node.id = progress."nodeId"
+        WHERE progress."userId" = ${userId}
+          AND progress."completedAt" >= ${start}
+          AND progress."completedAt" < ${end}
+      ),
+      quiz_attempt_scores AS (
+        SELECT
+          attempt.id,
+          (
+            SELECT COUNT(*)
+            FROM "Question" AS question
+            WHERE question."nodeId" = attempt."nodeId"
+          ) AS question_count,
+          COUNT(answer.id) AS answer_count,
+          COALESCE(BOOL_AND(answer."isCorrect"), FALSE) AS all_correct
+        FROM "QuizAttempt" AS attempt
+        LEFT JOIN "QuizAnswer" AS answer ON answer."attemptId" = attempt.id
+        WHERE attempt."userId" = ${userId}
+          AND attempt."completedAt" >= ${start}
+          AND attempt."completedAt" < ${end}
+        GROUP BY attempt.id
+      ),
+      quiz_metrics AS (
+        SELECT
+          COUNT(*) AS quizzes,
+          COUNT(*) FILTER (
+            WHERE question_count > 0
+              AND answer_count = question_count
+              AND all_correct
+          ) AS perfect_quizzes
+        FROM quiz_attempt_scores
+      )
+      SELECT
+        node_availability.published_node_count AS "publishedNodeCount",
+        node_availability.lesson_node_count AS "lessonNodeCount",
+        node_availability.quiz_node_count AS "quizNodeCount",
+        node_availability.published_chapter_count AS "publishedChapterCount",
+        activity_metrics.lessons AS lessons,
+        quiz_metrics.quizzes AS quizzes,
+        quiz_metrics.perfect_quizzes AS "perfectQuizzes",
+        activity_metrics.activities AS activities,
+        activity_metrics.chapters AS chapters
+      FROM node_availability
+      CROSS JOIN activity_metrics
+      CROSS JOIN quiz_metrics
+    `,
+  )
+  if (!metrics || metrics.publishedNodeCount === 0n) return { quests: [], xpAwarded: 0 }
 
-  const nodeCountByType = new Map(nodeCounts.map((entry) => [entry.type, entry._count._all]))
   const quests = getDailyQuestSet(userId, date, {
-    hasLessons: (nodeCountByType.get(RoadmapNodeType.LESSON) ?? 0) > 0,
-    hasQuizzes: (nodeCountByType.get(RoadmapNodeType.QUIZ) ?? 0) > 0
-      || (nodeCountByType.get(RoadmapNodeType.BOSS) ?? 0) > 0,
-    hasMultipleChapters: chapterCount > 1,
+    hasLessons: metrics.lessonNodeCount > 0n,
+    hasQuizzes: metrics.quizNodeCount > 0n,
+    hasMultipleChapters: metrics.publishedChapterCount > 1n,
   })
-  const perfectQuizzes = quizAttempts.filter((attempt) =>
-    attempt.node._count.questions > 0
-    && attempt.answers.length === attempt.node._count.questions
-    && attempt.answers.every((answer) => answer.isCorrect)).length
-  const progress = {
-    lessons: activities.filter((activity) => activity.node.type === RoadmapNodeType.LESSON).length,
-    quizzes: quizAttempts.length,
-    perfectQuizzes,
-    activities: activities.length,
-    chapters: new Set(activities.map((activity) => activity.node.chapterId)).size,
+  const progress: Record<DailyQuest['metric'], number> = {
+    lessons: Number(metrics.lessons),
+    quizzes: Number(metrics.quizzes),
+    perfectQuizzes: Number(metrics.perfectQuizzes),
+    activities: Number(metrics.activities),
+    chapters: Number(metrics.chapters),
   }
   const rewardKeys = quests.map((quest) => `daily-quest:${date}:${quest.id}`)
-  const existingRewards = await transaction.rewardEvent.findMany({
+  const existingRewards = await measureTimedOperation(timings, 'quests.rewardLookupQueryMs', () => transaction.rewardEvent.findMany({
     where: { userId, idempotencyKey: { in: rewardKeys } },
     select: { idempotencyKey: true },
-  })
+  }))
   const rewardedKeys = new Set(existingRewards.map((reward) => reward.idempotencyKey))
   let xpAwarded = 0
 
@@ -75,7 +127,15 @@ export async function syncDailyQuestRewards(
     const rewardKey = `daily-quest:${date}:${quest.id}`
     const completed = progress[quest.metric] >= quest.target
     if (completed && !rewardedKeys.has(rewardKey)) {
-      const awarded = await recordReward(transaction, userId, rewardKey, quest.xpReward, 0)
+      const awarded = await recordReward(
+        transaction,
+        userId,
+        rewardKey,
+        quest.xpReward,
+        0,
+        timings,
+        `quests.reward.${quest.id}`,
+      )
       if (awarded) xpAwarded += quest.xpReward
       rewardedKeys.add(rewardKey)
     }

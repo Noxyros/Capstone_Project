@@ -12,8 +12,10 @@ export async function GET() {
 
   try {
     const date = jakartaDateKey()
-    const result = await prisma.$transaction((transaction) =>
-      syncDailyQuestRewards(transaction, authentication.appUser.id))
+    const result = await prisma.$transaction(
+      (transaction) => syncDailyQuestRewards(transaction, authentication.appUser.id),
+      { maxWait: 10_000, timeout: 30_000 },
+    )
     const profile = result.xpAwarded > 0
       ? await getAppProfile(authentication.appUser.id)
       : null

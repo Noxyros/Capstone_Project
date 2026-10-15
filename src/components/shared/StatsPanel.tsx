@@ -6,7 +6,7 @@ import { Flame, Heart, ChevronDown, GraduationCap, Gem, Snowflake, X, Zap, Infin
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useUser } from '@/src/context/UserContext'
 
-const GRADES = [7, 8, 9] as const
+const GRADES = Array.from({ length: 12 }, (_, index) => index + 1)
 function StreakCalendar({ streak, activityDates }: { streak: number; activityDates: string[] }) {
   const { t, language } = useLanguage()
   const dateParts = new Intl.DateTimeFormat('en-CA', {
@@ -105,7 +105,7 @@ export default function StatsPanel() {
     setSuperMode,
     activateHeartSurge,
   } = useUser()
-  const [grade, setGrade] = useState<(typeof GRADES)[number]>(7)
+  const [grade, setGrade] = useState(7)
   const [open, setOpen] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
@@ -171,7 +171,7 @@ export default function StatsPanel() {
               initial={{ opacity: 0, y: 5 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 5 }}
-              className="absolute top-full left-0 mt-2 w-44 bg-white border-2 border-slate-200 rounded-2xl shadow-xl p-2 z-50"
+              className="absolute top-full left-0 mt-2 max-h-64 w-44 overflow-y-auto overscroll-contain bg-white border-2 border-slate-200 rounded-2xl shadow-xl p-2 z-50"
             >
               <div className="text-[10px] font-extrabold text-slate-400 uppercase px-2 py-1">{t('Grade', 'Kelas')}</div>
               {GRADES.map((g) => (

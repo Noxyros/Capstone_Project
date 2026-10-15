@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   AlertCircle, BookOpen, Check, CheckCircle2, ChevronDown, CircleHelp, FilePlus2,
   FileText, Gamepad2, Gift, GraduationCap, LoaderCircle, LockKeyhole,
@@ -109,7 +110,7 @@ function makeSubject(): CurriculumSubject {
   return {
     id: createCurriculumId('subject'),
     name: '',
-    grade: 7,
+    grade: 0,
     icon: 'book',
     color: 'blue',
     chapters: [makeChapter(1)],
@@ -175,7 +176,7 @@ function getSaveErrorMessage(
   } else if (field === 'resourceUrl') {
     problem = t('has an invalid or overly long resource link.', 'memiliki tautan materi yang tidak valid atau terlalu panjang.')
   } else if (field === 'grade') {
-    problem = t('must use Grade 7, 8, or 9.', 'harus menggunakan kelas 7, 8, atau 9.')
+    problem = t('must be a whole number between 1 and 12.', 'harus berupa angka bulat antara 1 dan 12.')
   } else {
     problem = t('has incomplete or invalid information. Check its fields and try again.', 'memiliki data yang belum lengkap atau tidak valid. Periksa kembali isinya, lalu coba lagi.')
   }
@@ -252,6 +253,7 @@ export default function TeacherPage() {
   const initialSubjects = cachedSubjects ?? []
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(initialSubjects)
   const [savedSubjects, setSavedSubjects] = useState<CurriculumSubject[]>(initialSubjects)
+  const [gradeDrafts, setGradeDrafts] = useState<Record<string, string>>({})
   const [selectedSubjectId, setSelectedSubjectId] = useState('')
   const [selectedChapterId, setSelectedChapterId] = useState('')
   const [selectedSubmoduleId, setSelectedSubmoduleId] = useState('')
@@ -268,7 +270,19 @@ export default function TeacherPage() {
   const [curriculumReady, setCurriculumReady] = useState(cachedSubjects !== null)
   const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
+  const [portalReady, setPortalReady] = useState(false)
+  const [toast, setToast] = useState({ visible: false, message: '' })
   const materialFileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    setPortalReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!toast.visible) return
+    const timeoutId = window.setTimeout(() => setToast((current) => ({ ...current, visible: false })), 3500)
+    return () => window.clearTimeout(timeoutId)
+  }, [toast.message, toast.visible])
 
   useEffect(() => {
     let active = true
@@ -317,6 +331,12 @@ export default function TeacherPage() {
   const selectedNode = selectedNodes.find((node) => node.id === selectedNodeId)
 
   const hasUnsavedChanges = JSON.stringify(subjects) !== JSON.stringify(savedSubjects)
+    || subjects.some((subject) => {
+      const gradeDraft = gradeDrafts[subject.id]
+      const savedGrade = savedSubjects.find((savedSubject) => savedSubject.id === subject.id)?.grade
+      return gradeDraft !== undefined
+        && (!/^\d+$/.test(gradeDraft) || Number(gradeDraft) !== savedGrade)
+    })
 
   const updateDraft = (next: CurriculumSubject[]) => {
     setSubjects(next)
@@ -325,10 +345,21 @@ export default function TeacherPage() {
 
   const saveChanges = async () => {
     if (!hasUnsavedChanges || isSaving) return
+    if (subjects.some((subject) => {
+      const gradeDraft = gradeDrafts[subject.id] ?? (subject.grade === 0 ? '' : String(subject.grade))
+      return !/^\d+$/.test(gradeDraft) || Number(gradeDraft) < 1 || Number(gradeDraft) > 12
+    })) {
+      setToast({
+        visible: true,
+        message: t('Each subject grade must be a whole number between 1 and 12.', 'Kelas setiap mata pelajaran harus berupa angka bulat antara 1 dan 12.'),
+      })
+      return
+    }
     setIsSaving(true)
     try {
       await saveCurriculum(subjects)
       setSavedSubjects(subjects)
+      setGradeDrafts({})
       setError('')
     } catch (saveError) {
       console.error('Failed to save curriculum changes.', saveError)
@@ -875,9 +906,25 @@ export default function TeacherPage() {
                   />
                 </label>
                 <label><span className={labelClass}>{t('Grade', 'Kelas')}</span>
-                  <select className={inputClass} value={selectedSubject.grade} onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, grade: Number(event.target.value) as CurriculumSubject['grade'] }))}>
-                    {[7, 8, 9].map((grade) => <option key={grade} value={grade}>{t(`Grade ${grade}`, `Kelas ${grade}`)}</option>)}
-                  </select>
+                  <input
+                    className={inputClass}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={gradeDrafts[selectedSubject.id] ?? (selectedSubject.grade === 0 ? '' : String(selectedSubject.grade))}
+                    aria-describedby="subject-grade-help"
+                    onChange={(event) => {
+                      const value = event.target.value
+                      setGradeDrafts((current) => ({ ...current, [selectedSubject.id]: value }))
+                      if (/^\d+$/.test(value) && Number(value) >= 1 && Number(value) <= 12) {
+                        updateSubject(selectedSubject.id, (subject) => ({ ...subject, grade: Number(value) }))
+                      }
+                      setToast((current) => ({ ...current, visible: false }))
+                    }}
+                  />
+                  <span id="subject-grade-help" className="mt-1 block text-xs font-semibold text-slate-500">
+                    {t('Enter a whole number between 1 and 12.', 'Masukkan angka bulat antara 1 dan 12.')}
+                  </span>
                 </label>
                 <label><span className={labelClass}>{t('Icon', 'Ikon')}</span>
                   <select className={inputClass} value={selectedSubject.icon} onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, icon: event.target.value }))}>
@@ -1102,20 +1149,37 @@ export default function TeacherPage() {
           </div>
         ) : null}
       </div>
-      <div className="flex justify-end rounded-2xl border-2 border-slate-200 bg-white p-3 sm:p-4">
+      <div className="flex flex-col items-stretch gap-3 rounded-2xl border-2 border-slate-200 bg-white p-3 sm:p-4">
+        <p className="text-left text-xs font-semibold leading-relaxed text-slate-400 sm:max-w-md">
+          {t('Saved changes are visible to learners when published.', 'Perubahan yang disimpan akan terlihat oleh siswa setelah dipublikasikan.')}
+        </p>
         <button
           type="button"
           onClick={saveChanges}
           disabled={!hasUnsavedChanges || isSaving}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-5 py-3 font-extrabold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 disabled:hover:bg-slate-200 sm:w-auto"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-2xl border-b-4 border-emerald-800 bg-emerald-600 px-5 py-3 font-extrabold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500 disabled:hover:bg-slate-200"
         >
-          {isSaving ? <LoaderCircle className="h-5 w-5 animate-spin" /> : hasUnsavedChanges ? <Save className="h-5 w-5" /> : <Check className="h-5 w-5" />}
+          {isSaving ? <LoaderCircle className="h-5 w-5 animate-spin" /> : hasUnsavedChanges ? <Save className="h-5 w-5" /> : <Check className="hidden h-5 w-5 sm:block" />}
           {isSaving ? t('Saving…', 'Menyimpan…') : hasUnsavedChanges ? t('Save changes', 'Simpan perubahan') : t('Saved', 'Tersimpan')}
         </button>
       </div>
-      <p className="text-center text-xs font-semibold text-slate-400">
-        {t('Saved changes are visible to learners when published.', 'Perubahan yang disimpan akan terlihat oleh siswa setelah dipublikasikan.')}
-      </p>
+      {portalReady && createPortal(
+        <div
+          role="alert"
+          aria-live="assertive"
+          className={`fixed bottom-6 left-1/2 z-[10000] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 transition-all duration-300 ease-out ${
+            toast.visible
+              ? 'translate-y-0 scale-100 opacity-100'
+              : 'pointer-events-none translate-y-8 scale-95 opacity-0'
+          }`}
+        >
+          <div className="profile-toast-error flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-xl sm:px-6 sm:py-4">
+            <AlertCircle className="h-6 w-6 shrink-0" />
+            <span className="min-w-0 break-words text-sm font-extrabold">{toast.message}</span>
+          </div>
+        </div>,
+        document.body,
+      )}
     </div>
   )
 }
@@ -1390,11 +1454,35 @@ function NodeEditor({
             <option value="lesson">{t('Lesson / material', 'Pelajaran / materi')}</option><option value="quiz">{t('Quiz', 'Kuis')}</option><option value="boss">{t('Final boss', 'Bos akhir')}</option><option value="treasure">{t('Treasure chest', 'Peti harta')}</option>
           </select>
         </label>
-        <label><span className={labelClass}>{t('Node status', 'Status node')}</span>
+        <label className="sm:hidden"><span className={labelClass}>{t('Node status', 'Status node')}</span>
           <select className={inputClass} value={node.status} onChange={(event) => updateNode((current) => ({ ...current, status: event.target.value as CurriculumNode['status'] }))}>
             <option value="current">{t('Available', 'Tersedia')}</option><option value="completed">{t('Completed', 'Selesai')}</option><option value="locked">{t('Locked', 'Terkunci')}</option>
           </select>
         </label>
+        <fieldset className="hidden sm:col-span-3 sm:block">
+          <legend className={labelClass}>{t('Node status', 'Status node')}</legend>
+          <div className="grid w-full grid-cols-3 gap-2">
+            {([
+              ['current', t('Available', 'Tersedia')],
+              ['completed', t('Completed', 'Selesai')],
+              ['locked', t('Locked', 'Terkunci')],
+            ] as const).map(([status, label]) => (
+              <button
+                key={status}
+                type="button"
+                aria-pressed={node.status === status}
+                onClick={() => updateNode((current) => ({ ...current, status }))}
+                className={`w-full min-w-0 rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${
+                  node.status === status
+                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                    : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </fieldset>
       </div>
 
       {node.type === 'lesson' ? (

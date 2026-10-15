@@ -18,10 +18,12 @@ interface AuthContextValue {
   signOut: () => Promise<void>
   refreshProfile: () => Promise<void>
   updateProfile: (profile: AppProfile, options?: { invalidateLeaderboard?: boolean }) => void
+  updateProfileFields: (fields: Partial<AppProfile>) => void
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined)
 const PROFILE_CACHE_PREFIX = 'questly_profile:'
+const profileRequests = new Map<string, Promise<AppProfile>>()
 
 function readCachedProfile(authUserId: string): AppProfile | null {
   try {
@@ -66,18 +68,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [error, setError] = useState('')
 
   const loadProfile = useCallback(async (authUserId: string) => {
-    const response = await fetch('/api/auth/profile', { cache: 'no-store' })
-    const result: unknown = await response.json()
-    if (!response.ok) {
-      const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
-        ? result.error
-        : 'Could not load your account profile.'
-      throw new Error(message)
+    let request = profileRequests.get(authUserId)
+    if (!request) {
+      request = (async () => {
+        const response = await fetch('/api/auth/profile', { cache: 'no-store' })
+        const result: unknown = await response.json()
+        if (!response.ok) {
+          const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+            ? result.error
+            : 'Could not load your account profile.'
+          throw new Error(message)
+        }
+        if (!isAppProfile(result)) {
+          throw new Error('The server returned an invalid account profile.')
+        }
+        return result
+      })()
+      profileRequests.set(authUserId, request)
+      const sharedRequest = request
+      void request.then(
+        () => { if (profileRequests.get(authUserId) === sharedRequest) profileRequests.delete(authUserId) },
+        () => { if (profileRequests.get(authUserId) === sharedRequest) profileRequests.delete(authUserId) },
+      )
     }
-    if (!isAppProfile(result)) {
-      throw new Error('The server returned an invalid account profile.')
-    }
-
+    const result = await request
     setProfile(result)
     setRole(result.role)
     setState('signed_in')
@@ -222,8 +236,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [user])
 
+  const updateProfileFields = useCallback((fields: Partial<AppProfile>) => {
+    setProfile((currentProfile) => {
+      if (!currentProfile) return currentProfile
+      const nextProfile = { ...currentProfile, ...fields }
+      if (user) writeCachedProfile(user.id, nextProfile)
+      return nextProfile
+    })
+  }, [user])
+
   return (
-    <AuthContext.Provider value={{ user, profile, role, state, error, signOut, refreshProfile, updateProfile }}>
+    <AuthContext.Provider value={{ user, profile, role, state, error, signOut, refreshProfile, updateProfile, updateProfileFields }}>
       {children}
     </AuthContext.Provider>
   )

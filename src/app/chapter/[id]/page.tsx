@@ -17,6 +17,7 @@ export default function ChapterRoadmapPage() {
   const params = useParams<{ id: string }>()
   const chapterId = params.id
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
+  const [isLoading, setIsLoading] = useState(() => getCachedCurriculum(undefined, curriculumScope) === null)
   const [error, setError] = useState('')
 
   useEffect(() => {
@@ -27,11 +28,21 @@ export default function ChapterRoadmapPage() {
         console.error('Failed to load learner curriculum.', loadError)
         if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this roadmap.')
       })
+      .finally(() => { if (active) setIsLoading(false) })
     return () => { active = false }
   }, [chapterId, curriculumScope])
 
   const chapterData = subjects.flatMap((subject) => subject.chapters).find((chapter) => chapter.id === chapterId)
   const parentSubjectId = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))?.id
+  const firstAvailableSubmodule = chapterData?.submodules.find((submodule) =>
+    submodule.isPublished && chapterData.chaptersStatus !== 'locked')
+
+  useEffect(() => {
+    if (firstAvailableSubmodule) {
+      router.prefetch(`/chapter/${chapterId}/submodule/${firstAvailableSubmodule.id}`)
+    }
+  }, [chapterId, firstAvailableSubmodule?.id, router])
+
   return (
     <div className="mx-auto max-w-3xl space-y-5 pb-24">
       <header className="sticky top-4 z-30 flex items-center gap-4 rounded-3xl border-2 border-slate-200 bg-white/90 p-4 shadow-sm backdrop-blur-md">
@@ -48,14 +59,20 @@ export default function ChapterRoadmapPage() {
             {t('Module', 'Modul')}
           </span>
           <h1 className="text-2xl font-extrabold text-slate-700">
-            {chapterData?.title ?? t('Unknown Module', 'Modul tidak dikenal')}
+            {chapterData?.title ?? (isLoading ? t('Loading module…', 'Memuat modul…') : t('Unknown Module', 'Modul tidak dikenal'))}
           </h1>
         </div>
       </header>
 
       {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
 
-      {chapterData && (
+        {isLoading && !chapterData && (
+          <p role="status" className="rounded-2xl border-2 border-slate-200 bg-white p-6 text-center font-bold text-slate-500">
+            {t('Loading your module…', 'Memuat modulmu…')}
+          </p>
+        )}
+
+        {chapterData && (
         <div className="space-y-3">
           {chapterData.submodules.map((submodule) => {
             const nodes = chapterData.nodes.filter((node) => node.submoduleId === submodule.id)
@@ -110,6 +127,8 @@ export default function ChapterRoadmapPage() {
                   {!locked ? (
                     <Link
                       href={`/chapter/${chapterId}/submodule/${submodule.id}`}
+                      onPointerEnter={() => router.prefetch(`/chapter/${chapterId}/submodule/${submodule.id}`)}
+                      onFocus={() => router.prefetch(`/chapter/${chapterId}/submodule/${submodule.id}`)}
                       className={`flex shrink-0 items-center gap-2 rounded-xl border-b-4 px-4 py-2 text-xs font-extrabold uppercase tracking-wide ${
                         completed ? 'border-emerald-700 bg-emerald-500 text-white' : 'border-indigo-800 bg-indigo-600 text-white'
                       }`}

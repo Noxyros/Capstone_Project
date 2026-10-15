@@ -2,12 +2,17 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { Flame, Trophy, Snowflake, Heart, Gem, Zap } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { useAuth } from '@/src/context/AuthContext'
 import { useUser } from '@/src/context/UserContext'
+import { getCachedLeaderboard, loadLeaderboard, type LeaderboardData } from '@/src/lib/leaderboardClient'
 
 export default function RightRail() {
   const { t } = useLanguage()
+  const { user, profile } = useAuth()
+  const pathname = usePathname()
   const {
     gems,
     hearts,
@@ -23,7 +28,15 @@ export default function RightRail() {
     buyPowerUp,
   } = useUser()
 
+  const [leaderboard, setLeaderboard] = useState<LeaderboardData | null>(null)
+  const [leaderboardOwnerId, setLeaderboardOwnerId] = useState('')
+  const [leaderboardLoading, setLeaderboardLoading] = useState(true)
+  const [leaderboardError, setLeaderboardError] = useState('')
   const [now, setNow] = useState(() => Date.now())
+  const currentUserId = user?.id ?? ''
+  const currentUserStanding = leaderboard && leaderboardOwnerId === currentUserId
+    ? leaderboard.rows.find((row) => row.id === leaderboard.currentUserId)
+    : undefined
   const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
   const xpBoostActive = xpBoostSecondsLeft > 0
   const gemTimerAnchor = superMode && doubleGemsPausedAt ? Date.parse(doubleGemsPausedAt) : now
@@ -35,6 +48,39 @@ export default function RightRail() {
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
   }, [gemBoostActive, superMode, xpBoostActive])
+
+  useEffect(() => {
+    if (!currentUserId) {
+      setLeaderboard(null)
+      setLeaderboardOwnerId('')
+      setLeaderboardLoading(false)
+      setLeaderboardError('')
+      return
+    }
+
+    let active = true
+    const cached = getCachedLeaderboard(currentUserId)
+    setLeaderboard(cached)
+    setLeaderboardOwnerId(currentUserId)
+    setLeaderboardLoading(!cached)
+    setLeaderboardError('')
+    void loadLeaderboard(currentUserId)
+      .then((result) => {
+        if (active) {
+          setLeaderboard(result)
+          setLeaderboardOwnerId(currentUserId)
+        }
+      })
+      .catch((error: unknown) => {
+        console.error('Failed to refresh weekly standings in the learner sidebar.', error)
+        if (active) setLeaderboardError(error instanceof Error
+          ? error.message
+          : t('Could not load weekly standings.', 'Tidak dapat memuat peringkat mingguan.'))
+      })
+      .finally(() => { if (active) setLeaderboardLoading(false) })
+
+    return () => { active = false }
+  }, [currentUserId, pathname, profile?.weeklyXp, t])
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -64,12 +110,27 @@ export default function RightRail() {
           <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
             <Trophy className="w-5 h-5 text-amber-500" />
           </div>
-          <p className="text-xs font-semibold text-slate-500 leading-relaxed">
-            {t(
-              'Finish one lesson to join this week’s board.',
-              'Selesaikan satu pelajaran untuk bergabung di papan minggu ini.'
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-slate-500 leading-relaxed">
+              {leaderboardLoading && !leaderboard
+                ? t('Loading weekly standings…', 'Memuat peringkat mingguan…')
+                : currentUserStanding
+                  ? currentUserStanding.weeklyXp > 0
+                    ? t(
+                      `You’re #${currentUserStanding.rank} this week with ${currentUserStanding.weeklyXp} XP.`,
+                      `Kamu berada di peringkat #${currentUserStanding.rank} minggu ini dengan ${currentUserStanding.weeklyXp} XP.`
+                    )
+                    : t('Earn weekly XP by completing a lesson or quiz.', 'Dapatkan XP mingguan dengan menyelesaikan pelajaran atau kuis.')
+                  : leaderboardError
+                    ? t('Could not load weekly standings. Open the board to try again.', 'Tidak dapat memuat peringkat mingguan. Buka papan untuk mencoba lagi.')
+                    : t('Weekly standings are available to student accounts.', 'Peringkat mingguan tersedia untuk akun pelajar.')}
+            </p>
+            {leaderboardError && leaderboard && (
+              <p role="alert" className="mt-1 text-[10px] font-bold text-rose-600">
+                {t('Could not refresh weekly standings.', 'Tidak dapat memperbarui peringkat mingguan.')}
+              </p>
             )}
-          </p>
+          </div>
         </div>
       </div>
 

@@ -133,6 +133,7 @@ export default function DailyQuizWidget({
   const [error, setError] = useState('')
   const savedAnswerIds = useRef(new Set<string>())
   const answerSaveQueue = useRef<Promise<void>>(Promise.resolve())
+  const challengeLoadInFlight = useRef(false)
 
   useEffect(() => {
     profileRef.current = profile
@@ -159,6 +160,8 @@ export default function DailyQuizWidget({
   }, [dailyResetDate, profile?.id])
 
   const loadChallenge = useCallback(async () => {
+    if (challengeLoadInFlight.current) return
+    challengeLoadInFlight.current = true
     if (!challengeRef.current) setIsLoading(true)
     setError('')
     try {
@@ -195,11 +198,13 @@ export default function DailyQuizWidget({
       console.error('Failed to load the daily challenge.', loadError)
       setError(loadError instanceof Error ? loadError.message : t('Could not load today’s challenge.', 'Tidak dapat memuat tantangan hari ini.'))
     } finally {
+      challengeLoadInFlight.current = false
       setIsLoading(false)
     }
   }, [dailyResetDate, t])
 
   useEffect(() => {
+    if (challengeRef.current || challengeLoadInFlight.current) return
     void loadChallenge()
   }, [dailyResetDate, loadChallenge, profile?.id])
 

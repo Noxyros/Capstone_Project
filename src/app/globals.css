@@ -163,6 +163,21 @@ html.dark .bg-white\/95 {
   background-color: #162329 !important;
 }
 
+@media (min-width: 640px) {
+  html.dark .sm\:bg-white {
+    background-color: #162329 !important;
+  }
+
+  html.dark .sm\:border-slate-200,
+  html.dark .sm\:border-b-slate-200 {
+    border-color: #26383f !important;
+  }
+
+  html.dark .sm\:hover\:bg-slate-50:hover {
+    background-color: #1d2c32 !important;
+  }
+}
+
 html.dark .bg-slate-50,
 html.dark .bg-slate-100 {
   background-color: #132026 !important;

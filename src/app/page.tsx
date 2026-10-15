@@ -13,7 +13,12 @@ import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
 import { localizeSubjectName } from '@/src/lib/curriculumLocalization'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { isDailyQuestProgress, type DailyQuestProgress } from '@/src/lib/dailyQuests'
-import { cacheDailyQuests, getCachedDailyQuests } from '@/src/lib/dailyQuestClient'
+import {
+  cacheDailyQuests,
+  DAILY_QUESTS_UPDATED_EVENT,
+  getCachedDailyQuests,
+  shareDailyQuestRequest,
+} from '@/src/lib/dailyQuestClient'
 import { isAppProfile } from '@/src/lib/appProfile'
 import { useJakartaDailyReset } from '@/src/hooks/useJakartaDailyReset'
 
@@ -23,55 +28,62 @@ export default function HomePage() {
   const { dateKey: dailyResetDate, secondsRemaining } = useJakartaDailyReset()
   const curriculumScope = user?.id ?? 'public'
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
+  const [isCurriculumLoading, setIsCurriculumLoading] = useState(true)
   const [curriculumError, setCurriculumError] = useState('')
+  const [curriculumRetry, setCurriculumRetry] = useState(0)
   const [dailyQuests, setDailyQuests] = useState<DailyQuestProgress[] | null>(() =>
     user?.id ? getCachedDailyQuests(user.id)?.quests ?? null : null)
   const [dailyQuestError, setDailyQuestError] = useState('')
 
   useEffect(() => {
     let active = true
+    setIsCurriculumLoading(true)
+    setCurriculumError('')
     void loadCurriculum(undefined, curriculumScope)
       .then((result) => { if (active) setSubjects(result) })
       .catch((error) => {
         console.error('Failed to load learner curriculum.', error)
         if (active) setCurriculumError(error instanceof Error ? error.message : t('Could not load subjects.', 'Tidak dapat memuat mata pelajaran.'))
       })
+      .finally(() => { if (active) setIsCurriculumLoading(false) })
     return () => { active = false }
-  }, [curriculumScope, t])
+  }, [curriculumRetry, curriculumScope, t])
 
   const loadDailyQuests = useCallback(async () => {
-    const response = await fetch('/api/daily-quests', { cache: 'no-store' })
-    let result: unknown
-    try {
-      result = await response.json()
-    } catch {
-      throw new Error(t('Daily quests returned an unreadable response.', 'Misi harian mengirim respons yang tidak terbaca.'))
-    }
-    if (!response.ok) {
-      const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
-        ? result.error
-        : t('Could not load daily quests.', 'Tidak dapat memuat misi harian.')
-      throw new Error(message)
-    }
-    if (
-      typeof result !== 'object'
-      || result === null
-      || !('quests' in result)
-      || !Array.isArray(result.quests)
-      || result.quests.length > 3
-      || !result.quests.every(isDailyQuestProgress)
-    ) {
-      throw new Error(t('The server returned invalid daily quest data.', 'Server mengirim data misi harian yang tidak valid.'))
-    }
-    if ('profile' in result) {
-      if (!isAppProfile(result.profile)) {
-        throw new Error(t('The server returned invalid learner profile data.', 'Server mengirim data profil pelajar yang tidak valid.'))
+    return shareDailyQuestRequest(user?.id ?? '', async () => {
+      const response = await fetch('/api/daily-quests', { cache: 'no-store' })
+      let result: unknown
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error(t('Daily quests returned an unreadable response.', 'Misi harian mengirim respons yang tidak terbaca.'))
       }
-      updateProfile(result.profile)
-    }
-    cacheDailyQuests(user?.id ?? '', result.quests)
-    setDailyQuests(result.quests)
-    setDailyQuestError('')
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : t('Could not load daily quests.', 'Tidak dapat memuat misi harian.')
+        throw new Error(message)
+      }
+      if (
+        typeof result !== 'object'
+        || result === null
+        || !('quests' in result)
+        || !Array.isArray(result.quests)
+        || result.quests.length > 3
+        || !result.quests.every(isDailyQuestProgress)
+      ) {
+        throw new Error(t('The server returned invalid daily quest data.', 'Server mengirim data misi harian yang tidak valid.'))
+      }
+      if ('profile' in result) {
+        if (!isAppProfile(result.profile)) {
+          throw new Error(t('The server returned invalid learner profile data.', 'Server mengirim data profil pelajar yang tidak valid.'))
+        }
+        updateProfile(result.profile)
+      }
+      cacheDailyQuests(user?.id ?? '', result.quests)
+      setDailyQuests(result.quests)
+      setDailyQuestError('')
+    })
   }, [t, updateProfile, user?.id])
 
   useEffect(() => {
@@ -95,6 +107,20 @@ export default function HomePage() {
     })
     return () => { active = false }
   }, [dailyResetDate, loadDailyQuests, user?.id, t])
+
+  useEffect(() => {
+    if (!user?.id) return
+    const handleDailyQuestsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId: string }>).detail
+      if (detail?.userId !== user.id) return
+      const cached = getCachedDailyQuests(user.id)
+      if (!cached) return
+      setDailyQuests(cached.quests)
+      setDailyQuestError('')
+    }
+    window.addEventListener(DAILY_QUESTS_UPDATED_EVENT, handleDailyQuestsUpdated)
+    return () => window.removeEventListener(DAILY_QUESTS_UPDATED_EVENT, handleDailyQuestsUpdated)
+  }, [user?.id])
 
   return (
     <div className="space-y-8">
@@ -144,7 +170,14 @@ export default function HomePage() {
 
       <section>
         <h2 className="text-xl font-extrabold text-slate-700 mb-4">{t('Your Subjects', 'Mata Pelajaranmu')}</h2>
-        {curriculumError && <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{curriculumError}</p>}
+        {curriculumError && (
+          <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">
+            <span>{curriculumError}</span>
+            <button type="button" onClick={() => setCurriculumRetry((count) => count + 1)} className="underline underline-offset-2">
+              {t('Retry', 'Coba lagi')}
+            </button>
+          </div>
+        )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {subjects.map((subject) => {
             const nodes = subject.chapters.flatMap((chapter) => chapter.nodes)
@@ -160,7 +193,12 @@ export default function HomePage() {
               />
             )
           })}
-          {!curriculumError && subjects.length === 0 && (
+          {isCurriculumLoading && subjects.length === 0 && (
+            <p role="status" className="col-span-full rounded-2xl border-2 border-slate-200 bg-white p-6 text-center font-bold text-slate-500">
+              {t('Loading your subjects...', 'Memuat mata pelajaranmu...')}
+            </p>
+          )}
+          {!isCurriculumLoading && !curriculumError && subjects.length === 0 && (
             <p className="col-span-full rounded-2xl border-2 border-dashed border-slate-200 bg-white p-6 text-center font-bold text-slate-500">
               {t('No published subjects are available yet.', 'Belum ada mata pelajaran yang dipublikasikan.')}
             </p>

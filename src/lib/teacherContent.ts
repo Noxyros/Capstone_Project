@@ -56,7 +56,7 @@ export type CurriculumChapter = {
 export type CurriculumSubject = {
   id: string
   name: string
-  grade: 7 | 8 | 9
+  grade: number
   icon: string
   color: 'blue' | 'green' | 'rose' | 'amber' | 'purple' | 'cyan'
   chapters: CurriculumChapter[]

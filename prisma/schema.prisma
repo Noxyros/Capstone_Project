@@ -344,6 +344,7 @@ model NodeProgress {
   node        RoadmapNode @relation(fields: [nodeId], references: [id], onDelete: Cascade)
 
   @@unique([userId, nodeId])
+  @@index([userId, bestScore, completedAt])
   @@index([nodeId])
 }
 

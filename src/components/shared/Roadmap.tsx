@@ -1,8 +1,9 @@
 // src/components/shared/Roadmap.tsx
 'use client'
 
-import React from 'react'
+import React, { useEffect } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Check, FileText, Gamepad2, Sparkles, Swords, Gift } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 
@@ -27,6 +28,15 @@ const defaultNodes: RoadmapNode[] = [
 
 export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProps) {
   const { t } = useLanguage()
+  const router = useRouter()
+  const firstAvailableNode = nodes.find((node) => node.status === 'current')
+    ?? nodes.find((node) => node.status !== 'locked')
+
+  useEffect(() => {
+    if (chapterId && firstAvailableNode) {
+      router.prefetch(`/chapter/${chapterId}/node/${firstAvailableNode.id}`)
+    }
+  }, [chapterId, firstAvailableNode?.id, router])
 
   const nodeConfig: Record<string, any> = {
     lesson: { label: t('LESSON', 'PELAJARAN'), icon: FileText, bg: 'bg-[#0095FF]', text: 'text-[#0095FF]' },
@@ -94,7 +104,8 @@ export default function Roadmap({ nodes = defaultNodes, chapterId }: RoadmapProp
                 {isClickable ? (
                   <Link 
                     href={`/chapter/${chapterId}/node/${node.id}`}
-                    prefetch={false}
+                    onPointerEnter={() => router.prefetch(`/chapter/${chapterId}/node/${node.id}`)}
+                    onFocus={() => router.prefetch(`/chapter/${chapterId}/node/${node.id}`)}
                     className="block w-full outline-none focus-visible:ring-4 focus-visible:ring-indigo-500 rounded-2xl"
                   >
                     <CardContent />

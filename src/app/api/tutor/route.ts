@@ -149,7 +149,7 @@ function createSystemInstruction(request: TutorRequest): string {
   }
 
   return [
-    'You are a supportive, concise tutor for students in grades 7-9.',
+    'You are a supportive, concise tutor for students in grades 1-12.',
     languageInstruction,
     'Explain ideas step by step using simple language and a brief example when useful. Help the learner understand; do not do unrelated tasks.',
     'Keep replies concise, readable, and complete. Avoid numbered lists unless the learner asks for steps. Use simple Markdown: short headings, normal bullets, and bold only when useful. Do not use italic styling, HTML, nested lists, decorative separators, or extra introductions. Put every equation in $...$ inline or $$...$$ on its own line; never leave LaTeX commands outside math delimiters. Use \\frac rather than \\dfrac.',

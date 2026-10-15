@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
@@ -14,6 +14,7 @@ export default function SubjectDetailPage() {
   const { t, language } = useLanguage()
   const { user } = useAuth()
   const curriculumScope = user?.id ?? 'public'
+  const router = useRouter()
   const params = useParams<{ id: string }>()
   const subjectId = params.id
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
@@ -31,6 +32,11 @@ export default function SubjectDetailPage() {
   }, [curriculumScope])
 
   const subject = subjects.find((item) => item.id === subjectId)
+  const firstAvailableChapter = subject?.chapters.find((chapter) => chapter.chaptersStatus !== 'locked')
+
+  useEffect(() => {
+    if (firstAvailableChapter) router.prefetch(`/chapter/${firstAvailableChapter.id}`)
+  }, [firstAvailableChapter?.id, router])
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -80,6 +86,8 @@ export default function SubjectDetailPage() {
                 {!isLocked ? (
                   <Link
                     href={`/chapter/${chapter.id}`}
+                    onPointerEnter={() => router.prefetch(`/chapter/${chapter.id}`)}
+                    onFocus={() => router.prefetch(`/chapter/${chapter.id}`)}
                     className={`flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs uppercase tracking-wide border-b-4 ${
                       isInProgress ? 'bg-indigo-600 text-white border-indigo-800' : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
                     }`}

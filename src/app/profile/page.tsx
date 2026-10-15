@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import Link from 'next/link'
 import {
-  Flame, Heart, Zap, Trophy, Medal, User, Sparkles,
+  Flame, TrendingUp, Zap, Trophy, Medal, User, Sparkles,
   Pencil, AtSign, Upload, CheckCircle2, AlertCircle,
   Settings
 } from 'lucide-react'
@@ -246,46 +246,46 @@ export default function ProfilePage() {
         <h2 className="text-xl font-extrabold text-slate-700 mb-5 flex items-center gap-2.5 px-1">
           <User className="w-6 h-6 text-slate-400" /> {t('Statistics', 'Statistik')}
         </h2>
-        <div className="grid grid-cols-2 gap-3 sm:gap-4">
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 hover:bg-slate-50 transition-colors">
-            <div className="w-12 h-12 rounded-2xl bg-orange-100 border-2 border-orange-200 flex items-center justify-center shrink-0">
-              <Flame className="w-6 h-6 text-orange-500 fill-orange-500" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile?.streak ?? '—'}</h3>
-              <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Day streak', 'Hari streak')}</p>
-            </div>
-          </div>
-
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 hover:bg-slate-50 transition-colors">
-            <div className="w-12 h-12 rounded-2xl bg-sky-100 border-2 border-sky-200 flex items-center justify-center shrink-0">
-              <Zap className="w-6 h-6 text-sky-500 fill-sky-500" />
-            </div>
-            <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile?.totalXp ?? '—'}</h3>
-              <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Total XP', 'Total XP')}</p>
-            </div>
-          </div>
-
-          <Link href="/leaderboard" className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 hover:bg-slate-50 transition-colors">
-            <div className="w-12 h-12 rounded-2xl bg-amber-100 border-2 border-amber-200 flex items-center justify-center shrink-0">
-              <Trophy className="w-6 h-6 text-amber-500" />
+        <div className="grid grid-cols-2 gap-2 sm:gap-4">
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-amber-500 border-b-amber-600 bg-amber-400 p-3 transition-colors hover:bg-amber-500 sm:gap-4 sm:border-slate-200 sm:border-b-slate-200 sm:bg-white sm:p-5 sm:hover:bg-slate-50">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200/50 bg-amber-300/50 sm:h-12 sm:w-12 sm:rounded-2xl sm:border-orange-200 sm:bg-orange-100">
+              <Flame className="h-4 w-4 fill-white text-white sm:h-6 sm:w-6 sm:fill-orange-500 sm:text-orange-500" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none truncate">
+              <h3 className="text-xl font-extrabold leading-none text-white sm:text-2xl sm:text-slate-700">{profile?.streak ?? '—'}</h3>
+              <p className="mt-1 uppercase tracking-wide text-[10px] font-bold text-amber-50 sm:mt-1.5 sm:text-xs sm:text-slate-400">{t('Day streak', 'Hari streak')}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-sky-200 bg-sky-100 sm:h-12 sm:w-12 sm:rounded-2xl">
+              <Zap className="h-4 w-4 fill-sky-500 text-sky-500 sm:h-6 sm:w-6" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">{profile?.totalXp ?? '—'}</h3>
+              <p className="mt-1 uppercase tracking-wide text-[10px] font-bold text-slate-400 sm:mt-1.5 sm:text-xs">{t('Total XP', 'Total XP')}</p>
+            </div>
+          </div>
+
+          <Link href="/leaderboard" className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-amber-200 bg-amber-100 sm:h-12 sm:w-12 sm:rounded-2xl">
+              <Trophy className="h-4 w-4 text-amber-500 sm:h-6 sm:w-6" />
+            </div>
+            <div className="min-w-0">
+              <h3 className="truncate text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">
                 {profile ? `#${profile.rank}` : '—'}
               </h3>
-              <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide truncate">{t('Current rank', 'Peringkat saat ini')}</p>
+              <p className="mt-1 truncate uppercase tracking-wide text-[10px] font-bold text-slate-400 sm:mt-1.5 sm:text-xs">{t('Current rank', 'Peringkat saat ini')}</p>
             </div>
           </Link>
 
-          <div className="bg-white border-2 border-b-4 border-slate-200 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 hover:bg-slate-50 transition-colors">
-            <div className="w-12 h-12 rounded-2xl bg-rose-100 border-2 border-rose-200 flex items-center justify-center shrink-0">
-              <Heart className="w-6 h-6 text-rose-500 fill-rose-500" />
+          <div className="flex flex-row items-center gap-2 rounded-2xl border-2 border-b-4 border-slate-200 bg-white p-3 transition-colors hover:bg-slate-50 sm:gap-4 sm:p-5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border-2 border-sky-200 bg-sky-100 sm:h-12 sm:w-12 sm:rounded-2xl">
+              <TrendingUp className="h-4 w-4 text-emerald-600 sm:h-6 sm:w-6" />
             </div>
-            <div>
-              <h3 className="text-2xl font-extrabold text-slate-700 leading-none">{profile ? `${profile.hearts}/${profile.maxHearts}` : '—'}</h3>
-              <p className="text-xs font-bold text-slate-400 mt-1.5 uppercase tracking-wide">{t('Hearts left', 'Nyawa tersisa')}</p>
+            <div className="min-w-0">
+              <h3 className="text-xl font-extrabold leading-none text-slate-700 sm:text-2xl">{profile?.weeklyXp ?? '—'}</h3>
+              <p className="mt-1 uppercase tracking-wide text-[10px] font-bold text-slate-400 sm:mt-1.5 sm:text-xs">{t('Weekly XP', 'XP mingguan')}</p>
             </div>
           </div>
         </div>
