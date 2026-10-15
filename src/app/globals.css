@@ -153,9 +153,19 @@ body * {
   transition-timing-function: ease;
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
 html.dark body {
   background-color: #0f1a1f;
   color: #e5edf0;
+}
+
+html.dark select,
+html.dark option {
+  background-color: #162329 !important;
+  color: #edf5f7 !important;
 }
 
 html.dark .bg-white,
@@ -209,15 +219,18 @@ html.dark .border-indigo-100 {
   border-color: #35447a !important;
 }
 
-html.dark .bg-sky-50 {
+html.dark .bg-sky-50,
+html.dark .bg-sky-100 {
   background-color: #173b4c !important;
 }
 
-html.dark .bg-emerald-50 {
+html.dark .bg-emerald-50,
+html.dark .bg-emerald-100 {
   background-color: #193b38 !important;
 }
 
-html.dark .bg-amber-50 {
+html.dark .bg-amber-50,
+html.dark .bg-amber-100 {
   background-color: #40321d !important;
 }
 
@@ -226,12 +239,39 @@ html.dark .bg-orange-100 {
   background-color: #412b1d !important;
 }
 
-html.dark .bg-rose-50 {
-  background-color: #402532 !important;
-}
-
+html.dark .bg-rose-50,
 html.dark .bg-rose-100 {
   background-color: #512c3d !important;
+}
+
+html.dark .bg-purple-50,
+html.dark .bg-purple-100 {
+  background-color: #35234d !important;
+}
+
+html.dark .bg-cyan-50,
+html.dark .bg-cyan-100 {
+  background-color: #163a40 !important;
+}
+
+html.dark .bg-teal-50,
+html.dark .bg-teal-100 {
+  background-color: #183936 !important;
+}
+
+html.dark .bg-red-50,
+html.dark .bg-red-100 {
+  background-color: #4f1d22 !important;
+}
+
+html.dark .bg-lime-50,
+html.dark .bg-lime-100 {
+  background-color: #2c3e1e !important;
+}
+
+html.dark .bg-pink-50,
+html.dark .bg-pink-100 {
+  background-color: #4d1f3e !important;
 }
 
 html.dark .text-slate-900,
