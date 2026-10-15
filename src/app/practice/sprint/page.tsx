@@ -218,24 +218,7 @@ export default function RapidSprintPage() {
         </div>
       </div>
 
-      {isLoading ? (
-        <p role="status" className="rounded-2xl border-2 border-slate-200 bg-white p-5 font-semibold text-slate-500">
-          {t('Preparing your sprint...', 'Menyiapkan tantangan...')}
-        </p>
-      ) : error && !result ? (
-        <div role="alert" className="rounded-2xl border-2 border-rose-200 bg-rose-50 p-5">
-          <p className="font-bold text-rose-700">{error}</p>
-          <button type="button" onClick={() => setRetryCount((count) => count + 1)} className="mt-4 min-h-11 rounded-xl border-2 border-rose-300 bg-white px-4 font-extrabold text-rose-700 hover:bg-rose-100">
-            {t('Try again', 'Coba lagi')}
-          </button>
-        </div>
-      ) : questions.length < 10 ? (
-        <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-5">
-          <p className="font-bold text-amber-800">
-            {t('Rapid Sprint needs at least 10 published quiz questions. Keep learning and try again later.', 'Tantangan Cepat memerlukan setidaknya 10 soal kuis yang dipublikasikan. Lanjutkan belajar dan coba lagi nanti.')}
-          </p>
-        </div>
-      ) : result ? (
+      {result ? (
         <section className="rounded-3xl border-2 border-amber-200 bg-white p-6 text-center shadow-sm sm:p-8">
           <div className="mx-auto grid h-20 w-20 place-items-center rounded-full bg-amber-100 text-amber-600">
             <Trophy className="h-10 w-10" />
@@ -261,7 +244,52 @@ export default function RapidSprintPage() {
             {t('Try again', 'Coba lagi')}
           </button>
         </section>
-      ) : !isStarted ? (
+      ) : isStarted && current ? (
+        <section className="rounded-3xl border-2 border-slate-200 bg-white p-5 shadow-sm sm:p-7">
+          <div className="mb-5 flex items-center justify-between gap-3">
+            <p className="font-extrabold text-slate-600">
+              {t(`Question ${questionIndex + 1} of 10`, `Soal ${questionIndex + 1} dari 10`)}
+            </p>
+            <p className={`inline-flex items-center gap-2 rounded-full px-3 py-2 font-extrabold tabular-nums ${secondsRemaining <= 20 ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`} aria-live="polite">
+              <Clock3 className="h-4 w-4" /> {formattedTime}
+            </p>
+          </div>
+          <div className="mb-5 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={10} aria-valuenow={questionIndex}>
+            <div className="h-full rounded-full bg-amber-400 transition-[width]" style={{ width: `${(questionIndex / 10) * 100}%` }} />
+          </div>
+          <h2 className="text-xl font-extrabold leading-relaxed text-slate-800">{current.prompt}</h2>
+          {current.allowsMultipleAnswers && <p className="mt-2 text-sm font-semibold text-slate-500">{t('Select all correct answers.', 'Pilih semua jawaban yang benar.')}</p>}
+          <div className="mt-5 space-y-3">
+            {current.options.map((option, index) => {
+              const selected = selectedOptionIds.includes(option.id)
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => toggleOption(option.id)}
+                  className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border-2 p-4 text-left font-bold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 ${selected ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-700 hover:border-amber-200 hover:bg-slate-50'}`}
+                >
+                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-current text-sm">{String.fromCharCode(65 + index)}</span>
+                  <span>{option.text}</span>
+                </button>
+              )
+            })}
+          </div>
+          {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
+          <button
+            type="button"
+            disabled={selectedOptionIds.length === 0 || isSubmitting}
+            onClick={() => {
+              if (questionIndex === 9) void finishSprint()
+              else setQuestionIndex((index) => index + 1)
+            }}
+            className="mt-5 min-h-12 w-full rounded-xl border-b-4 border-amber-800 bg-amber-500 px-5 py-3 font-extrabold text-white hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
+          >
+            {isSubmitting ? t('Submitting...', 'Mengirim...') : questionIndex === 9 ? t('Finish sprint', 'Selesaikan tantangan') : t('Continue', 'Lanjutkan')}
+          </button>
+        </section>
+      ) : (
         <section className="rounded-3xl border-2 border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           {/* Header with Title and Description */}
           <div>
@@ -336,62 +364,52 @@ export default function RapidSprintPage() {
             </div>
           </div>
 
+          {error && (
+            <div role="alert" className="mt-6 rounded-2xl border-2 border-rose-200 bg-rose-50 p-4">
+              <p className="font-bold text-rose-700">{error}</p>
+              <button
+                type="button"
+                onClick={() => setRetryCount((count) => count + 1)}
+                className="mt-3 min-h-10 rounded-xl border border-rose-300 bg-white px-4 text-xs font-extrabold text-rose-700 hover:bg-rose-100"
+              >
+                {t('Try again', 'Coba lagi')}
+              </button>
+            </div>
+          )}
+
+          {!isLoading && !error && questions.length < 10 && (
+            <div className="mt-6 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
+              <p className="text-sm font-bold text-amber-800">
+                {t(
+                  'Rapid Sprint needs at least 10 published quiz questions. Keep learning and try again later.',
+                  'Tantangan Cepat memerlukan setidaknya 10 soal kuis yang dipublikasikan. Lanjutkan belajar dan coba lagi nanti.'
+                )}
+              </p>
+            </div>
+          )}
+
           {/* Big Duolingo 3D Action Button */}
           <button
             type="button"
-            onClick={() => setIsStarted(true)}
-            className="mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-b-4 border-amber-800 bg-amber-500 hover:bg-amber-600 px-6 py-4 text-lg font-black text-white shadow-lg shadow-amber-500/20 transition-all active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200"
-          >
-            <Zap className="h-5 w-5 fill-current" />
-            {t('Start Rapid Sprint', 'Mulai Tantangan Cepat')}
-          </button>
-        </section>
-      ) : current ? (
-        <section className="rounded-3xl border-2 border-slate-200 bg-white p-5 shadow-sm sm:p-7">
-          <div className="mb-5 flex items-center justify-between gap-3">
-            <p className="font-extrabold text-slate-600">
-              {t(`Question ${questionIndex + 1} of 10`, `Soal ${questionIndex + 1} dari 10`)}
-            </p>
-            <p className={`inline-flex items-center gap-2 rounded-full px-3 py-2 font-extrabold tabular-nums ${secondsRemaining <= 20 ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-700'}`} aria-live="polite">
-              <Clock3 className="h-4 w-4" /> {formattedTime}
-            </p>
-          </div>
-          <div className="mb-5 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={10} aria-valuenow={questionIndex}>
-            <div className="h-full rounded-full bg-amber-400 transition-[width]" style={{ width: `${questionIndex / 10 * 100}%` }} />
-          </div>
-          <h2 className="text-xl font-extrabold leading-relaxed text-slate-800">{current.prompt}</h2>
-          {current.allowsMultipleAnswers && <p className="mt-2 text-sm font-semibold text-slate-500">{t('Select all correct answers.', 'Pilih semua jawaban yang benar.')}</p>}
-          <div className="mt-5 space-y-3">
-            {current.options.map((option, index) => {
-              const selected = selectedOptionIds.includes(option.id)
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  aria-pressed={selected}
-                  onClick={() => toggleOption(option.id)}
-                  className={`flex min-h-14 w-full items-center gap-3 rounded-2xl border-2 p-4 text-left font-bold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 ${selected ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-slate-200 text-slate-700 hover:border-amber-200 hover:bg-slate-50'}`}
-                >
-                  <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full border-2 border-current text-sm">{String.fromCharCode(65 + index)}</span>
-                  <span>{option.text}</span>
-                </button>
-              )
-            })}
-          </div>
-          {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
-          <button
-            type="button"
-            disabled={selectedOptionIds.length === 0 || isSubmitting}
+            disabled={isLoading || questions.length < 10 || Boolean(error)}
             onClick={() => {
-              if (questionIndex === 9) void finishSprint()
-              else setQuestionIndex((index) => index + 1)
+              if (questions.length >= 10 && !isLoading) setIsStarted(true)
             }}
-            className="mt-5 min-h-12 w-full rounded-xl border-b-4 border-amber-800 bg-amber-500 px-5 py-3 font-extrabold text-white hover:bg-amber-600 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:border-slate-300 disabled:bg-slate-200 disabled:text-slate-500"
+            className={`mt-6 flex min-h-14 w-full items-center justify-center gap-2 rounded-2xl border-b-4 px-6 py-4 text-lg font-black transition-all ${
+              isLoading || questions.length < 10 || Boolean(error)
+                ? 'border-slate-300 bg-slate-200 text-slate-400 cursor-not-allowed'
+                : 'border-amber-800 bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/20 active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200'
+            }`}
           >
-            {isSubmitting ? t('Submitting...', 'Mengirim...') : questionIndex === 9 ? t('Finish sprint', 'Selesaikan tantangan') : t('Continue', 'Lanjutkan')}
+            <Zap className={`h-5 w-5 fill-current ${isLoading ? 'animate-pulse' : ''}`} />
+            {isLoading
+              ? t('Preparing Sprint…', 'Menyiapkan Tantangan…')
+              : questions.length < 10
+                ? t('Not Enough Questions', 'Soal Belum Cukup')
+                : t('Start Rapid Sprint', 'Mulai Tantangan Cepat')}
           </button>
         </section>
-      ) : null}
+      )}
     </div>
   )
 }
