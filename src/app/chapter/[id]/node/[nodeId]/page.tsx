@@ -464,6 +464,21 @@ function TreasureActivity({
     }, 850)
   }
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (chestState === 'opened' && !isClaiming) {
+          onClaim()
+        } else if (chestState === 'closed' && !isClaiming) {
+          void handleOpenChest()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [chestState, isClaiming, onClaim])
+
   const ItemIcon = activeItemCode === 'DOUBLE_XP'
     ? Zap
     : activeItemCode === 'STREAK_FREEZE'
@@ -623,6 +638,21 @@ function LessonActivity({
       'PDF ini tidak memiliki teks yang dapat dipilih. Tutor belum dapat membaca hasil pindai berupa gambar.'
     )
     : ''
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        const target = e.target as HTMLElement | null
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+        e.preventDefault()
+        if (!isCompleting) {
+          onComplete()
+        }
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isCompleting, onComplete])
 
   return (
     <div className="space-y-6">
@@ -872,6 +902,49 @@ function QuizActivity({
     }
     setCurrentIndex((previous) => previous + 1)
   }
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+
+      if (e.key === 'Enter') {
+        e.preventDefault()
+        if (isFinished) {
+          if (!isCompleting) onComplete(attemptId)
+        } else if (isChecked) {
+          continueQuiz()
+        } else if (selectedOptionIds.length > 0 && !isSubmittingAnswer) {
+          void checkAnswer()
+        }
+        return
+      }
+
+      if (!isFinished && !isChecked) {
+        const num = parseInt(e.key, 10)
+        if (!isNaN(num) && num >= 1 && num <= currentQuestion.options.length) {
+          e.preventDefault()
+          const opt = currentQuestion.options[num - 1]
+          if (opt) selectAnswer(opt.id)
+        }
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [
+    isFinished,
+    isCompleting,
+    attemptId,
+    isChecked,
+    selectedOptionIds,
+    isSubmittingAnswer,
+    currentQuestion,
+    onComplete,
+    continueQuiz,
+    checkAnswer,
+    selectAnswer,
+  ])
 
   if (isFinished) {
     return (
