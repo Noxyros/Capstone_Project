@@ -84,7 +84,7 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
   const monthStart = `${today.slice(0, 7)}-01`
   const weekStartInstant = new Date(`${weekStart}T00:00:00+07:00`)
 
-  const [user, weeklyTotals, students] = await Promise.all([
+  const [user, weeklyTotals, students, completedNodesCount, perfectQuizzesCount] = await Promise.all([
     measureTimedOperation(timings, 'profile.userQueryMs', () => prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -125,6 +125,12 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
       where: { role: 'STUDENT' },
       select: { id: true, name: true, handle: true },
     })),
+    measureTimedOperation(timings, 'profile.completedNodesCountMs', () => prisma.nodeProgress.count({
+      where: { userId, completedAt: { not: null } },
+    })),
+    measureTimedOperation(timings, 'profile.perfectQuizzesCountMs', () => prisma.nodeProgress.count({
+      where: { userId, completedAt: { not: null }, bestScore: 100 },
+    })),
   ])
   if (!user) return null
 
@@ -163,6 +169,8 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
     createdAt: user.createdAt.toISOString(),
     rank,
     activityDates: user.activityDays.map((activity) => activity.date),
+    completedNodesCount,
+    perfectQuizzesCount,
   }
 }
 

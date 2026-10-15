@@ -21,7 +21,7 @@ export type CurriculumNode = {
   content: string
   resourceUrl: string
   questions: CurriculumQuestion[]
-  rewardCurrency?: 'xp' | 'gems'
+  rewardCurrency?: 'xp' | 'gems' | 'item'
   rewardAmount?: number
 }
 

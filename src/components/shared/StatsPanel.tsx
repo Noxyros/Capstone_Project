@@ -101,11 +101,12 @@ export default function StatsPanel() {
     isMutating,
     isSuperModeSaving,
     gameError,
+    selectedGrade: grade,
+    setSelectedGrade: setGrade,
     buyPowerUp,
     setSuperMode,
     activateHeartSurge,
   } = useUser()
-  const [grade, setGrade] = useState(7)
   const [open, setOpen] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0

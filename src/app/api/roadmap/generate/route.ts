@@ -224,7 +224,7 @@ export async function POST(request: Request) {
     || !subjectName.trim()
     || subjectName.length > 120
     || typeof gradeValue !== 'string'
-    || !['7', '8', '9'].includes(gradeValue)
+    || !/^(?:[1-9]|1[0-2])$/.test(gradeValue)
     || typeof requestedTitle !== 'string'
     || requestedTitle.length > 160
     || typeof learningGoal !== 'string'
@@ -301,7 +301,7 @@ export async function POST(request: Request) {
     : 'Infer a focused learning goal from the source material.'
   const languageInstruction = language === 'id' ? 'Write all generated text in natural Indonesian.' : 'Write all generated text in clear English.'
   const prompt = [
-    'Create one draft middle-school learning chapter from the supplied source material.',
+    `Create one draft learning chapter for Grade ${gradeValue} from the supplied source material.`,
     `Subject: ${subject}. Grade: ${gradeValue}.`,
     titleInstruction,
     goalInstruction,

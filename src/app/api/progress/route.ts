@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
-import { Prisma, RoadmapNodeType, RoadmapRewardCurrency } from '@prisma/client'
+import { PowerUpType, Prisma, RoadmapNodeType, RoadmapRewardCurrency } from '@prisma/client'
+import { getChestBonusItem } from '@/src/lib/chestRewards'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import {
   getAppProfile,
@@ -79,6 +80,7 @@ export async function POST(request: Request) {
           type: true,
           rewardCurrency: true,
           rewardAmount: true,
+          content: true,
           questions: { select: { id: true } },
         },
       })
@@ -96,7 +98,11 @@ export async function POST(request: Request) {
     if (!isQuizActivity && attemptId) {
       return NextResponse.json({ error: 'A quiz attempt cannot be used to finish this activity.' }, { status: 400 })
     }
+    const isItemTreasure = node.type === RoadmapNodeType.TREASURE
+      && !node.rewardCurrency
+      && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content)
     if (node.type === RoadmapNodeType.TREASURE
+      && !isItemTreasure
       && (!node.rewardCurrency || !node.rewardAmount || node.rewardAmount < 10)) {
       return NextResponse.json({ error: 'This treasure reward is not configured.' }, { status: 500 })
     }
@@ -208,25 +214,62 @@ export async function POST(request: Request) {
           xpAwarded += REWARDS.firstCompletionXp * xpMultiplier
           gemsAwarded += REWARDS.firstCompletionGems * gemMultiplier
         }
-        if (node.type === RoadmapNodeType.TREASURE && node.rewardCurrency && node.rewardAmount) {
-          const treasureXp = node.rewardCurrency === RoadmapRewardCurrency.XP
-            ? node.rewardAmount * xpMultiplier
-            : 0
-          const treasureGems = node.rewardCurrency === RoadmapRewardCurrency.GEMS
-            ? node.rewardAmount * gemMultiplier
-            : 0
-          const treasureAwarded = await recordReward(
-            transaction,
-            authentication.appUser.id,
-            `node:${node.id}:treasure`,
-            treasureXp,
-            treasureGems,
-            operationTimings,
-            'rewards.treasure',
-          )
-          if (treasureAwarded) {
-            xpAwarded += treasureXp
-            gemsAwarded += treasureGems
+        if (node.type === RoadmapNodeType.TREASURE) {
+          if (node.rewardCurrency && node.rewardAmount) {
+            const treasureXp = node.rewardCurrency === RoadmapRewardCurrency.XP
+              ? node.rewardAmount * xpMultiplier
+              : 0
+            const treasureGems = node.rewardCurrency === RoadmapRewardCurrency.GEMS
+              ? node.rewardAmount * gemMultiplier
+              : 0
+            const treasureAwarded = await recordReward(
+              transaction,
+              authentication.appUser.id,
+              `node:${node.id}:treasure`,
+              treasureXp,
+              treasureGems,
+              operationTimings,
+              'rewards.treasure',
+            )
+            if (treasureAwarded) {
+              xpAwarded += treasureXp
+              gemsAwarded += treasureGems
+            }
+          } else if (!node.rewardCurrency && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content)) {
+            const itemCode = node.content
+            if (itemCode === 'DOUBLE_XP') {
+              const currentDoubleXp = user.doubleXpUntil && user.doubleXpUntil > now
+                ? user.doubleXpUntil.getTime()
+                : now.getTime()
+              const doubleXpUntil = new Date(currentDoubleXp + 15 * 60_000)
+              await transaction.user.update({
+                where: { id: authentication.appUser.id },
+                data: { doubleXpUntil },
+              })
+            } else if (itemCode === 'STREAK_FREEZE') {
+              const freezeProduct = await transaction.powerUp.upsert({
+                where: { code: PowerUpType.STREAK_FREEZE },
+                create: {
+                  code: PowerUpType.STREAK_FREEZE,
+                  name: 'Streak Freeze',
+                  description: 'Protect one missed day of your streak.',
+                  icon: 'snowflake',
+                  costGems: 200,
+                },
+                update: {},
+                select: { id: true },
+              })
+              await transaction.userPowerUp.upsert({
+                where: { userId_powerUpId: { userId: authentication.appUser.id, powerUpId: freezeProduct.id } },
+                create: { id: crypto.randomUUID(), userId: authentication.appUser.id, powerUpId: freezeProduct.id, quantity: 1 },
+                update: { quantity: { increment: 1 } },
+              })
+            } else if (itemCode === 'HEART_REFILL') {
+              await transaction.user.update({
+                where: { id: authentication.appUser.id },
+                data: { hearts: 5 },
+              })
+            }
           }
         }
       }
