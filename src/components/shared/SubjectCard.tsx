@@ -2,11 +2,31 @@
 
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Calculator, FlaskConical, Languages, Globe, BookOpen, Shield, ChevronRight } from 'lucide-react'
+import {
+  Calculator,
+  FlaskConical,
+  Languages,
+  Globe,
+  BookOpen,
+  Shield,
+  ChevronRight,
+  Atom,
+  Dna,
+  Landmark,
+  TrendingUp,
+  Laptop,
+  Palette,
+  Activity,
+  Music,
+  Sparkles,
+  Users,
+  Leaf,
+} from 'lucide-react'
 import Link from 'next/link'
 import { useLanguage } from '@/src/context/LanguageContext'
+import type { SubjectColor } from '@/src/lib/teacherContent'
 
-export type SubjectColor = 'blue' | 'green' | 'rose' | 'amber' | 'purple' | 'cyan'
+export type { SubjectColor }
 
 interface SubjectCardProps {
   id: string
@@ -17,12 +37,18 @@ interface SubjectCardProps {
 }
 
 const colorThemeMap: Record<SubjectColor, { bg: string; border: string; text: string; lightBg: string }> = {
-  blue: { bg: 'bg-sky-400', border: 'border-sky-600', text: 'text-sky-600', lightBg: 'bg-sky-100' },
-  green: { bg: 'bg-emerald-400', border: 'border-emerald-600', text: 'text-emerald-600', lightBg: 'bg-emerald-100' },
-  rose: { bg: 'bg-rose-400', border: 'border-rose-600', text: 'text-rose-600', lightBg: 'bg-rose-100' },
-  amber: { bg: 'bg-amber-400', border: 'border-amber-600', text: 'text-amber-600', lightBg: 'bg-amber-100' },
-  purple: { bg: 'bg-purple-400', border: 'border-purple-600', text: 'text-purple-600', lightBg: 'bg-purple-100' },
-  cyan: { bg: 'bg-cyan-400', border: 'border-cyan-600', text: 'text-cyan-600', lightBg: 'bg-cyan-100' },
+  blue: { bg: 'bg-sky-400', border: 'border-sky-600', text: 'text-sky-600 dark:text-sky-400', lightBg: 'bg-sky-100 dark:bg-sky-950/60' },
+  green: { bg: 'bg-emerald-400', border: 'border-emerald-600', text: 'text-emerald-600 dark:text-emerald-400', lightBg: 'bg-emerald-100 dark:bg-emerald-950/60' },
+  rose: { bg: 'bg-rose-400', border: 'border-rose-600', text: 'text-rose-600 dark:text-rose-400', lightBg: 'bg-rose-100 dark:bg-rose-950/60' },
+  amber: { bg: 'bg-amber-400', border: 'border-amber-600', text: 'text-amber-600 dark:text-amber-400', lightBg: 'bg-amber-100 dark:bg-amber-950/60' },
+  purple: { bg: 'bg-purple-400', border: 'border-purple-600', text: 'text-purple-600 dark:text-purple-400', lightBg: 'bg-purple-100 dark:bg-purple-950/60' },
+  cyan: { bg: 'bg-cyan-400', border: 'border-cyan-600', text: 'text-cyan-600 dark:text-cyan-400', lightBg: 'bg-cyan-100 dark:bg-cyan-950/60' },
+  orange: { bg: 'bg-orange-400', border: 'border-orange-600', text: 'text-orange-600 dark:text-orange-400', lightBg: 'bg-orange-100 dark:bg-orange-950/60' },
+  indigo: { bg: 'bg-indigo-500', border: 'border-indigo-700', text: 'text-indigo-600 dark:text-indigo-400', lightBg: 'bg-indigo-100 dark:bg-indigo-950/60' },
+  teal: { bg: 'bg-teal-400', border: 'border-teal-600', text: 'text-teal-600 dark:text-teal-400', lightBg: 'bg-teal-100 dark:bg-teal-950/60' },
+  red: { bg: 'bg-red-500', border: 'border-red-700', text: 'text-red-600 dark:text-red-400', lightBg: 'bg-red-100 dark:bg-red-950/60' },
+  lime: { bg: 'bg-lime-400', border: 'border-lime-600', text: 'text-lime-700 dark:text-lime-400', lightBg: 'bg-lime-100 dark:bg-lime-950/60' },
+  pink: { bg: 'bg-pink-400', border: 'border-pink-600', text: 'text-pink-600 dark:text-pink-400', lightBg: 'bg-pink-100 dark:bg-pink-950/60' },
 }
 
 export default function SubjectCard({ id, name, color, progress, iconType }: SubjectCardProps) {
@@ -34,23 +60,62 @@ export default function SubjectCard({ id, name, color, progress, iconType }: Sub
     const iconClass = `w-8 h-8 ${theme.text}`
     switch (iconType || color) {
       case 'calculator':
-      case 'blue':
+      case 'math':
         return <Calculator className={iconClass} />
       case 'flask':
-      case 'green':
+      case 'chemistry':
+      case 'science':
         return <FlaskConical className={iconClass} />
+      case 'atom':
+      case 'physics':
+        return <Atom className={iconClass} />
+      case 'dna':
+      case 'biology':
+        return <Dna className={iconClass} />
       case 'languages':
-      case 'rose':
+      case 'english':
         return <Languages className={iconClass} />
       case 'globe':
-      case 'amber':
+      case 'geography':
+      case 'social':
         return <Globe className={iconClass} />
-      case 'book':
-      case 'purple':
-        return <BookOpen className={iconClass} />
+      case 'landmark':
+      case 'history':
+        return <Landmark className={iconClass} />
+      case 'trending_up':
+      case 'economics':
+      case 'finance':
+        return <TrendingUp className={iconClass} />
       case 'shield':
-      case 'cyan':
+      case 'civics':
+      case 'pancasila':
         return <Shield className={iconClass} />
+      case 'laptop':
+      case 'informatics':
+      case 'computer':
+        return <Laptop className={iconClass} />
+      case 'palette':
+      case 'art':
+      case 'sbdp':
+        return <Palette className={iconClass} />
+      case 'music':
+        return <Music className={iconClass} />
+      case 'activity':
+      case 'sports':
+      case 'pjok':
+        return <Activity className={iconClass} />
+      case 'users':
+      case 'sociology':
+        return <Users className={iconClass} />
+      case 'leaf':
+      case 'nature':
+      case 'environment':
+        return <Leaf className={iconClass} />
+      case 'sparkles':
+      case 'religion':
+      case 'character':
+        return <Sparkles className={iconClass} />
+      case 'book':
       default:
         return <BookOpen className={iconClass} />
     }
