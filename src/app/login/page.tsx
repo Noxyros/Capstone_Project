@@ -367,7 +367,7 @@ export default function LoginPage() {
                     onClick={() => setShowPassword((visible) => !visible)}
                     aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
                     aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                    className="absolute inset-y-0 right-3 inline-flex items-center justify-center text-slate-400 transition hover:text-slate-700 focus-visible:outline-none"
                   >
                     {showPassword
                       ? <EyeOff aria-hidden="true" className="h-5 w-5" />
