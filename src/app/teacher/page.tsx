@@ -11,6 +11,8 @@ import { useLanguage } from '@/src/context/LanguageContext'
 import {
   createCurriculumId,
   getCurriculumResourceFormat,
+  SUBJECT_ICON_OPTIONS,
+  SUBJECT_COLOR_OPTIONS,
   type CurriculumChapter,
   type CurriculumNode,
   type CurriculumQuestion,
@@ -921,13 +923,29 @@ export default function TeacherPage() {
                   </span>
                 </label>
                 <label><span className={labelClass}>{t('Icon', 'Ikon')}</span>
-                  <select className={inputClass} value={selectedSubject.icon} onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, icon: event.target.value }))}>
-                    <option value="book">{t('Book', 'Buku')}</option><option value="calculator">{t('Calculator', 'Kalkulator')}</option><option value="flask">{t('Science flask', 'Labu sains')}</option><option value="globe">{t('Globe', 'Globe')}</option>
+                  <select
+                    className={inputClass}
+                    value={selectedSubject.icon}
+                    onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, icon: event.target.value }))}
+                  >
+                    {SUBJECT_ICON_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {t(item.labelEn, item.labelId)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label><span className={labelClass}>{t('Card color', 'Warna kartu')}</span>
-                  <select className={inputClass} value={selectedSubject.color} onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, color: event.target.value as CurriculumSubject['color'] }))}>
-                    {(['blue', 'green', 'rose', 'amber', 'purple', 'cyan'] as const).map((color) => <option key={color} value={color}>{t(color, color)}</option>)}
+                  <select
+                    className={inputClass}
+                    value={selectedSubject.color}
+                    onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, color: event.target.value as CurriculumSubject['color'] }))}
+                  >
+                    {SUBJECT_COLOR_OPTIONS.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {t(item.labelEn, item.labelId)}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>

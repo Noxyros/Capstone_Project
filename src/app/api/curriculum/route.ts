@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { Prisma, RoadmapContentType, RoadmapNodeType, RoadmapRewardCurrency, Role } from '@prisma/client'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import { prisma } from '@/src/lib/prisma'
-import type { CurriculumSubject } from '@/src/lib/teacherContent'
+import { VALID_SUBJECT_COLORS, type CurriculumSubject, type SubjectColor } from '@/src/lib/teacherContent'
 
 function curriculumInclude(userId: string, teacherView: boolean) {
   return {
@@ -48,7 +48,7 @@ function toCurriculumSubject(
     name: subject.name,
     grade: subject.grade.level,
     icon: subject.icon ?? 'book',
-    color: (['blue', 'green', 'rose', 'amber', 'purple', 'cyan'].includes(subject.color)
+    color: (VALID_SUBJECT_COLORS.includes(subject.color as SubjectColor)
       ? subject.color
       : 'blue') as CurriculumSubject['color'],
     chapters: subject.chapters.map((chapter) => {
@@ -127,7 +127,7 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
       return { error: `${subjectPath}.grade must be an integer between 1 and 12.` }
     }
     if (!isString(subject.icon, 80)) return { error: `${subjectPath}.icon must be a string (max 80 characters).` }
-    if (!['blue', 'green', 'rose', 'amber', 'purple', 'cyan'].includes(subject.color as string)) {
+    if (!VALID_SUBJECT_COLORS.includes(subject.color as SubjectColor)) {
       return { error: `${subjectPath}.color is not supported.` }
     }
     if (!Array.isArray(subject.chapters)) return { error: `${subjectPath}.chapters must be an array.` }
