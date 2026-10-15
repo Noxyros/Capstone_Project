@@ -7,7 +7,7 @@ import { useAuth } from '@/src/context/AuthContext'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/client'
 
-type FormMode = 'sign_in' | 'sign_up'
+type FormMode = 'sign_in' | 'sign_up' | 'forgot_password'
 type AuthLanguage = 'en' | 'id'
 
 function getAuthErrorMessage(
@@ -96,6 +96,31 @@ export default function LoginPage() {
     try {
       const supabase = createClient()
       const nextPath = getNextPath()
+
+      if (mode === 'forgot_password') {
+        const resetEmail = email.trim().toLowerCase()
+        if (!resetEmail || !resetEmail.includes('@')) {
+          setError(t('Please enter a valid email address.', 'Silakan masukkan alamat email yang valid.'))
+          return
+        }
+
+        const { error: resetError } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+          redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+        })
+
+        if (resetError) {
+          setError(getAuthErrorMessage(resetError, mode, t))
+          return
+        }
+
+        setNotice(t(
+          'Password reset link sent! Check your email inbox to reset your password.',
+          'Tautan atur ulang kata sandi telah dikirim! Periksa kotak masuk emailmu untuk mengatur ulang kata sandi.'
+        ))
+        setPassword('')
+        return
+      }
+
       if (mode === 'sign_up') {
         const normalizedUsername = username.trim().toLowerCase()
         if (!/^[a-z0-9_]{3,24}$/.test(normalizedUsername)) {
@@ -250,13 +275,25 @@ export default function LoginPage() {
         <section className="w-full max-w-[440px] rounded-[30px] border border-white/90 bg-white/90 p-6 shadow-[0_24px_80px_-28px_rgba(30,41,59,0.28)] ring-1 ring-slate-200/70 backdrop-blur-xl sm:p-9">
           <div className="mb-7 text-center">
             <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-indigo-600">
-              {mode === 'sign_in' ? t('Your learning journey', 'Perjalanan belajarmu') : t('Start learning today', 'Mulai belajar hari ini')}
+              {mode === 'sign_in'
+                ? t('Your learning journey', 'Perjalanan belajarmu')
+                : mode === 'sign_up'
+                  ? t('Start learning today', 'Mulai belajar hari ini')
+                  : t('Account recovery', 'Pemulihan akun')}
             </p>
             <h1 className="text-[28px] font-black leading-tight tracking-tight text-slate-900 sm:text-[32px]">
-              {mode === 'sign_in' ? t('Log in', 'Masuk') : t('Sign up', 'Daftar')}
+              {mode === 'sign_in'
+                ? t('Log in', 'Masuk')
+                : mode === 'sign_up'
+                  ? t('Sign up', 'Daftar')
+                  : t('Reset password', 'Atur ulang kata sandi')}
             </h1>
             <p className="mt-2 text-sm leading-5 text-slate-500">
-              {mode === 'sign_in' ? t('Sign in to continue.', 'Masuk untuk melanjutkan.') : t('Create your student account.', 'Buat akun siswa.')}
+              {mode === 'sign_in'
+                ? t('Sign in to continue.', 'Masuk untuk melanjutkan.')
+                : mode === 'sign_up'
+                  ? t('Create your student account.', 'Buat akun siswa.')
+                  : t('Enter your email to receive a password reset link.', 'Masukkan emailmu untuk menerima tautan atur ulang kata sandi.')}
             </p>
           </div>
 
@@ -295,33 +332,50 @@ export default function LoginPage() {
               </label>
             )}
 
-            <label className="block">
-              <span className="mb-1.5 block text-xs font-extrabold tracking-wide text-slate-600">{t('Password', 'Kata sandi')}</span>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
-                  required
-                  minLength={8}
-                  maxLength={72}
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 pr-12 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
-                  placeholder={t('At least 8 characters', 'Minimal 8 karakter')}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((visible) => !visible)}
-                  aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
-                  aria-pressed={showPassword}
-                  className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
-                >
-                  {showPassword
-                    ? <EyeOff aria-hidden="true" className="h-5 w-5" />
-                    : <Eye aria-hidden="true" className="h-5 w-5" />}
-                </button>
-              </div>
-            </label>
+            {mode !== 'forgot_password' && (
+              <label className="block">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span className="text-xs font-extrabold tracking-wide text-slate-600">{t('Password', 'Kata sandi')}</span>
+                  {mode === 'sign_in' && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMode('forgot_password')
+                        setError('')
+                        setNotice('')
+                      }}
+                      className="text-xs font-bold text-indigo-600 hover:text-indigo-800 transition"
+                    >
+                      {t('Forgot password?', 'Lupa kata sandi?')}
+                    </button>
+                  )}
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
+                    required
+                    minLength={8}
+                    maxLength={72}
+                    value={password}
+                    onChange={(event) => setPassword(event.target.value)}
+                    className="w-full rounded-2xl border-2 border-slate-200 bg-slate-50/70 px-4 py-3.5 pr-12 text-sm font-semibold text-slate-800 outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-400 focus:bg-white focus:ring-4 focus:ring-indigo-100"
+                    placeholder={t('At least 8 characters', 'Minimal 8 karakter')}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((visible) => !visible)}
+                    aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
+                    aria-pressed={showPassword}
+                    className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                  >
+                    {showPassword
+                      ? <EyeOff aria-hidden="true" className="h-5 w-5" />
+                      : <Eye aria-hidden="true" className="h-5 w-5" />}
+                  </button>
+                </div>
+              </label>
+            )}
 
             {(error || configurationError) && (
               <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2.5 text-sm font-bold text-rose-700">
@@ -347,29 +401,50 @@ export default function LoginPage() {
                 ? t('Please wait…', 'Tunggu…')
                 : mode === 'sign_in'
                   ? t('Sign in to Questly', 'Masuk ke Questly')
-                  : t('Create student account', 'Buat akun siswa')}
+                  : mode === 'sign_up'
+                    ? t('Create student account', 'Buat akun siswa')
+                    : t('Send reset link', 'Kirim tautan reset')}
               {!isSubmitting && <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
             </button>
           </form>
 
           <div className="my-5 h-px bg-slate-100" />
           <p className="text-center text-sm font-medium text-slate-500">
-            {mode === 'sign_in' ? t('New to Questly?', 'Baru di Questly?') : t('Already have an account?', 'Sudah punya akun?')}{' '}
-            <button
-              type="button"
-              onClick={() => {
-                setMode((current) => current === 'sign_in' ? 'sign_up' : 'sign_in')
-                setError('')
-                setNotice('')
-                setEmail('')
-                setUsername('')
-                setPassword('')
-                setShowPassword(false)
-              }}
-              className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
-            >
-              {mode === 'sign_in' ? t('Create an account', 'Buat akun') : t('Sign in', 'Masuk')}
-            </button>
+            {mode === 'forgot_password' ? (
+              <>
+                {t('Remembered your password?', 'Sudah ingat kata sandimu?')}{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode('sign_in')
+                    setError('')
+                    setNotice('')
+                  }}
+                  className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
+                >
+                  {t('Sign in', 'Masuk')}
+                </button>
+              </>
+            ) : (
+              <>
+                {mode === 'sign_in' ? t('New to Questly?', 'Baru di Questly?') : t('Already have an account?', 'Sudah punya akun?')}{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMode((current) => current === 'sign_in' ? 'sign_up' : 'sign_in')
+                    setError('')
+                    setNotice('')
+                    setEmail('')
+                    setUsername('')
+                    setPassword('')
+                    setShowPassword(false)
+                  }}
+                  className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
+                >
+                  {mode === 'sign_in' ? t('Create an account', 'Buat akun') : t('Sign in', 'Masuk')}
+                </button>
+              </>
+            )}
           </p>
 
         </section>
