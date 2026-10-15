@@ -36,19 +36,19 @@ interface SubjectCardProps {
   iconType?: string
 }
 
-const colorThemeMap: Record<SubjectColor, { bg: string; border: string; text: string; lightBg: string }> = {
-  blue: { bg: 'bg-sky-400', border: 'border-sky-600', text: 'text-sky-600 dark:text-sky-400', lightBg: 'bg-sky-100 dark:bg-sky-950/60' },
-  green: { bg: 'bg-emerald-400', border: 'border-emerald-600', text: 'text-emerald-600 dark:text-emerald-400', lightBg: 'bg-emerald-100 dark:bg-emerald-950/60' },
-  rose: { bg: 'bg-rose-400', border: 'border-rose-600', text: 'text-rose-600 dark:text-rose-400', lightBg: 'bg-rose-100 dark:bg-rose-950/60' },
-  amber: { bg: 'bg-amber-400', border: 'border-amber-600', text: 'text-amber-600 dark:text-amber-400', lightBg: 'bg-amber-100 dark:bg-amber-950/60' },
-  purple: { bg: 'bg-purple-400', border: 'border-purple-600', text: 'text-purple-600 dark:text-purple-400', lightBg: 'bg-purple-100 dark:bg-purple-950/60' },
-  cyan: { bg: 'bg-cyan-400', border: 'border-cyan-600', text: 'text-cyan-600 dark:text-cyan-400', lightBg: 'bg-cyan-100 dark:bg-cyan-950/60' },
-  orange: { bg: 'bg-orange-400', border: 'border-orange-600', text: 'text-orange-600 dark:text-orange-400', lightBg: 'bg-orange-100 dark:bg-orange-950/60' },
-  indigo: { bg: 'bg-indigo-500', border: 'border-indigo-700', text: 'text-indigo-600 dark:text-indigo-400', lightBg: 'bg-indigo-100 dark:bg-indigo-950/60' },
-  teal: { bg: 'bg-teal-400', border: 'border-teal-600', text: 'text-teal-600 dark:text-teal-400', lightBg: 'bg-teal-100 dark:bg-teal-950/60' },
-  red: { bg: 'bg-red-500', border: 'border-red-700', text: 'text-red-600 dark:text-red-400', lightBg: 'bg-red-100 dark:bg-red-950/60' },
-  lime: { bg: 'bg-lime-400', border: 'border-lime-600', text: 'text-lime-700 dark:text-lime-400', lightBg: 'bg-lime-100 dark:bg-lime-950/60' },
-  pink: { bg: 'bg-pink-400', border: 'border-pink-600', text: 'text-pink-600 dark:text-pink-400', lightBg: 'bg-pink-100 dark:bg-pink-950/60' },
+const colorThemeMap: Record<SubjectColor, { bg: string; border: string; text: string }> = {
+  blue: { bg: 'bg-sky-400', border: 'border-sky-600', text: 'text-sky-600 dark:text-sky-400' },
+  green: { bg: 'bg-emerald-400', border: 'border-emerald-600', text: 'text-emerald-600 dark:text-emerald-400' },
+  rose: { bg: 'bg-rose-400', border: 'border-rose-600', text: 'text-rose-600 dark:text-rose-400' },
+  amber: { bg: 'bg-amber-400', border: 'border-amber-600', text: 'text-amber-600 dark:text-amber-400' },
+  purple: { bg: 'bg-purple-400', border: 'border-purple-600', text: 'text-purple-600 dark:text-purple-400' },
+  cyan: { bg: 'bg-cyan-400', border: 'border-cyan-600', text: 'text-cyan-600 dark:text-cyan-400' },
+  orange: { bg: 'bg-orange-400', border: 'border-orange-600', text: 'text-orange-600 dark:text-orange-400' },
+  indigo: { bg: 'bg-indigo-500', border: 'border-indigo-700', text: 'text-indigo-600 dark:text-indigo-400' },
+  teal: { bg: 'bg-teal-400', border: 'border-teal-600', text: 'text-teal-600 dark:text-teal-400' },
+  red: { bg: 'bg-red-500', border: 'border-red-700', text: 'text-red-600 dark:text-red-400' },
+  lime: { bg: 'bg-lime-400', border: 'border-lime-600', text: 'text-lime-700 dark:text-lime-400' },
+  pink: { bg: 'bg-pink-400', border: 'border-pink-600', text: 'text-pink-600 dark:text-pink-400' },
 }
 
 export default function SubjectCard({ id, name, color, progress, iconType }: SubjectCardProps) {
@@ -57,7 +57,7 @@ export default function SubjectCard({ id, name, color, progress, iconType }: Sub
 
   // Pick appropriate icon based on string or fallback
   const renderIcon = () => {
-    const iconClass = `w-8 h-8 ${theme.text}`
+    const iconClass = 'w-7 h-7 text-white stroke-[2.25] drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]'
     switch (iconType || color) {
       case 'calculator':
       case 'math':
@@ -138,7 +138,7 @@ export default function SubjectCard({ id, name, color, progress, iconType }: Sub
       >
         <div>
           <div className="flex items-center justify-between mb-4">
-            <div className={`p-3 rounded-2xl ${theme.lightBg}`}>
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-white ${theme.bg} border-b-4 ${theme.border} shadow-sm shrink-0`}>
               {renderIcon()}
             </div>
             <div className="text-right">
