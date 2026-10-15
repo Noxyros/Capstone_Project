@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, CheckCircle2, RotateCcw } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { playCorrectSound, playIncorrectSound, playFanfareSound, playClickSound } from '@/src/lib/soundEffects'
 
 type MistakeOption = { id: string; text: string }
 type Mistake = {
@@ -95,6 +96,7 @@ export default function MistakeReviewPage() {
 
   const toggleOption = (optionId: string) => {
     if (!current || feedback === 'correct' || isChecking) return
+    playClickSound()
     setFeedback(null)
     setSelectedOptionIds((selected) => {
       if (!current.allowsMultipleAnswers) return [optionId]
@@ -132,8 +134,10 @@ export default function MistakeReviewPage() {
         throw new Error(t('The server returned invalid answer data.', 'Server mengirim data jawaban yang tidak valid.'))
       }
       if (result.isCorrect) {
+        playCorrectSound()
         setFeedback('correct')
       } else {
+        playIncorrectSound()
         setFeedback('incorrect')
       }
     } catch (checkError) {
@@ -146,7 +150,11 @@ export default function MistakeReviewPage() {
   const continueReview = () => {
     if (feedback === 'correct') {
       setResolvedCount((count) => count + 1)
-      setMistakes((prev) => prev.filter((_, idx) => idx !== questionIndex))
+      const nextMistakes = mistakes.filter((_, idx) => idx !== questionIndex)
+      if (nextMistakes.length === 0) {
+        playFanfareSound()
+      }
+      setMistakes(nextMistakes)
     } else {
       setQuestionIndex((index) => index + 1)
     }

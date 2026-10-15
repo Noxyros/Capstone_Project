@@ -6,6 +6,7 @@ import { ArrowLeft, Clock3, Trophy, Zap, Target, ShieldCheck, Sparkles } from 'l
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
 import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
+import { playFanfareSound, playClickSound } from '@/src/lib/soundEffects'
 
 type SprintQuestion = {
   id: string
@@ -120,6 +121,7 @@ export default function RapidSprintPage() {
 
   const toggleOption = (optionId: string) => {
     if (!current || isSubmitting) return
+    playClickSound()
     setAnswers((previous) => {
       const selected = previous[current.id] ?? []
       const next = current.allowsMultipleAnswers
@@ -155,6 +157,7 @@ export default function RapidSprintPage() {
       if (!isSprintResult(payload)) throw new Error(t('The server returned invalid sprint results.', 'Server mengirim hasil tantangan yang tidak valid.'))
       setResult(payload)
       updateProfile(payload.profile)
+      playFanfareSound()
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : t('Could not submit Rapid Sprint.', 'Tidak dapat mengirim Tantangan Cepat.'))
     } finally {

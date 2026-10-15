@@ -307,7 +307,7 @@ export default function ProfilePage() {
           const perfectQuizzes = profile?.perfectQuizzesCount ?? 0
           const completedNodes = profile?.completedNodesCount ?? 0
           const totalXp = profile?.totalXp ?? 0
-          const gems = profile?.gems ?? 0
+          const gemsEarned = profile?.gemsEarned ?? Math.max(0, (profile?.gems ?? 500) - 500)
           const activeDays = profile?.activityDates?.length ?? 0
           const rank = profile?.rank ?? 999
 
@@ -372,7 +372,7 @@ export default function ProfilePage() {
               title: t('Gem Hoarder', 'Penimbun Permata'),
               desc: t('Collect 300 gems', 'Kumpulkan 300 permata'),
               icon: Gem,
-              current: gems,
+              current: gemsEarned,
               max: 300,
               tokenClass: 'bg-gradient-to-b from-teal-400 to-teal-500 border-b-[3px] border-teal-600 shadow-md shadow-teal-500/25',
               iconClass: 'text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)]',
