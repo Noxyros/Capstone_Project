@@ -3,13 +3,15 @@
 import React, { FormEvent, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ArrowRight, CheckCircle2, Eye, EyeOff, LoaderCircle, Lock } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Eye, EyeOff, LoaderCircle } from 'lucide-react'
 import { createClient, isSupabaseBrowserConfigured } from '@/src/lib/supabase/client'
-import { useLanguage } from '@/src/context/LanguageContext'
+
+type AuthLanguage = 'en' | 'id'
 
 export default function ResetPasswordPage() {
   const router = useRouter()
-  const { t } = useLanguage()
+  const [language, setLanguage] = useState<AuthLanguage>('en')
+  const t = (english: string, indonesian: string) => language === 'en' ? english : indonesian
 
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -29,7 +31,6 @@ export default function ResetPasswordPage() {
         const supabase = createClient()
         const { data: { session } } = await supabase.auth.getSession()
         if (!session) {
-          // If no recovery session, check URL hash / query parameters
           const hash = window.location.hash
           if (!hash.includes('access_token') && !window.location.search.includes('code')) {
             setError(t(
@@ -43,7 +44,8 @@ export default function ResetPasswordPage() {
       }
     }
     void checkSession()
-  }, [t])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault()
@@ -80,27 +82,40 @@ export default function ResetPasswordPage() {
   }
 
   return (
-    <div className="relative flex min-h-dvh flex-col justify-between overflow-x-hidden bg-slate-50 font-sans text-slate-800 antialiased">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute -left-24 -top-24 h-96 w-96 rounded-full bg-indigo-200/50 blur-3xl" />
-        <div className="absolute -right-24 top-1/3 h-96 w-96 rounded-full bg-sky-200/50 blur-3xl" />
+    <div className="auth-page relative isolate flex min-h-dvh flex-col overflow-hidden bg-[#f4f7f6] text-slate-800">
+      {/* Background blobs — same as login */}
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div className="auth-indigo-glow absolute -left-40 -top-40 h-[28rem] w-[28rem] rounded-full bg-indigo-100/70 blur-3xl" />
+        <div className="auth-emerald-glow absolute -bottom-48 -right-32 h-[34rem] w-[34rem] rounded-full bg-emerald-100/70 blur-3xl" />
+        <div className="auth-dot-pattern absolute inset-0 opacity-[0.24] [background-image:radial-gradient(#94a3b8_0.7px,transparent_0.7px)] [background-size:22px_22px]" />
       </div>
 
-      <header className="relative z-10 flex items-center justify-between px-6 py-6 sm:px-10">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="grid h-10 w-10 place-items-center rounded-2xl bg-indigo-600 font-black text-white shadow-md">
-            Q
-          </div>
-          <span className="text-xl font-black tracking-tight text-slate-800">QUESTLY</span>
-        </Link>
+      {/* Header — EN/ID toggle right, same as login */}
+      <header className="relative z-10 flex items-center justify-end px-5 py-4 sm:px-9 sm:py-5">
+        <div className="auth-language-control inline-flex items-center gap-1 rounded-full border border-slate-200/90 bg-white/80 p-1 shadow-sm backdrop-blur">
+          {(['en', 'id'] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setLanguage(option)}
+              aria-pressed={language === option}
+              className={`rounded-full px-3 py-1.5 text-xs font-extrabold transition-colors ${
+                language === option ? 'bg-slate-900 text-white' : 'text-slate-500 hover:bg-slate-100'
+              }`}
+            >
+              {option.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </header>
 
       <main className="relative z-10 flex flex-1 items-center justify-center px-4 pb-8 pt-2 sm:px-6 sm:pb-12">
         <section className="w-full max-w-[440px] rounded-[30px] border border-white/90 bg-white/90 p-6 shadow-[0_24px_80px_-28px_rgba(30,41,59,0.28)] ring-1 ring-slate-200/70 backdrop-blur-xl sm:p-9">
+          {/* Card header — eyebrow text + title, same pattern as login */}
           <div className="mb-7 text-center">
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600">
-              <Lock className="h-6 w-6" />
-            </div>
+            <p className="mb-2 text-[10px] font-extrabold uppercase tracking-[0.18em] text-indigo-600">
+              {t('Account recovery', 'Pemulihan akun')}
+            </p>
             <h1 className="text-[28px] font-black leading-tight tracking-tight text-slate-900 sm:text-[32px]">
               {t('New Password', 'Kata Sandi Baru')}
             </h1>
@@ -151,9 +166,11 @@ export default function ResetPasswordPage() {
                   <button
                     type="button"
                     onClick={() => setShowPassword((v) => !v)}
-                    className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 hover:text-slate-700"
+                    aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
+                    aria-pressed={showPassword}
+                    className="absolute inset-y-0 right-2 inline-flex w-10 items-center justify-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
                   >
-                    {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                    {showPassword ? <EyeOff aria-hidden="true" className="h-5 w-5" /> : <Eye aria-hidden="true" className="h-5 w-5" />}
                   </button>
                 </div>
               </label>
@@ -188,17 +205,19 @@ export default function ResetPasswordPage() {
               >
                 {isSubmitting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : null}
                 {isSubmitting ? t('Updating password…', 'Memperbarui kata sandi…') : t('Save new password', 'Simpan kata sandi baru')}
-                {!isSubmitting && <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
+                {!isSubmitting && <ArrowRight aria-hidden="true" className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />}
               </button>
 
-              <div className="pt-2 text-center">
+              <div className="my-5 h-px bg-slate-100" />
+              <p className="text-center text-sm font-medium text-slate-500">
+                {t('Remembered your password?', 'Sudah ingat kata sandimu?')}{' '}
                 <Link
                   href="/login"
-                  className="text-xs font-extrabold text-slate-500 hover:text-indigo-600 transition"
+                  className="font-extrabold text-indigo-700 underline decoration-indigo-200 decoration-2 underline-offset-4 transition hover:decoration-indigo-600"
                 >
-                  {t('Back to Login', 'Kembali ke Halaman Masuk')}
+                  {t('Sign in', 'Masuk')}
                 </Link>
-              </div>
+              </p>
             </form>
           )}
         </section>
@@ -206,4 +225,3 @@ export default function ResetPasswordPage() {
     </div>
   )
 }
-
