@@ -16,6 +16,18 @@ const nunito = Nunito({
 export const metadata = {
   title: 'Questly',
   description: 'Learn with daily quests, streaks, and challenges.',
+  icons: [
+    {
+      rel: 'icon',
+      type: 'image/svg+xml',
+      url: '/favicon.svg',
+    },
+    {
+      rel: 'icon',
+      url: '/favicon.ico',
+      sizes: 'any',
+    },
+  ],
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
