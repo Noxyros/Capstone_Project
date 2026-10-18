@@ -6,10 +6,27 @@ import { isDailyQuestProgress, type DailyQuestProgress } from '@/src/lib/dailyQu
 
 const CURRICULUM_CACHE_TTL_MS = 5 * 60 * 1000
 const CURRICULUM_CACHE_PREFIX = 'questly_curriculum:v4:'
+const CURRICULUM_VERSION_KEY = 'questly_curriculum_version'
 const CURRICULUM_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000
 const curriculumCache = new Map<string, { subjects: CurriculumSubject[]; fetchedAt: number }>()
 const curriculumRequests = new Map<string, Promise<CurriculumSubject[]>>()
 
+function currentCurriculumVersion(): number {
+  try {
+    return Number(localStorage.getItem(CURRICULUM_VERSION_KEY) ?? 0)
+  } catch {
+    return 0
+  }
+}
+
+function bumpCurriculumVersion(): void {
+  try {
+    const next = currentCurriculumVersion() + 1
+    localStorage.setItem(CURRICULUM_VERSION_KEY, String(next))
+  } catch {
+    // ignore
+  }
+}
 function cacheKey(view: 'teacher' | undefined, scope: string): string {
   return `${scope}:${view ?? 'learner'}`
 }
@@ -48,6 +65,8 @@ export function getCachedCurriculum(view?: 'teacher', scope = 'public'): Curricu
       || !('expiresAt' in parsed)
       || typeof parsed.expiresAt !== 'number'
       || parsed.expiresAt <= Date.now()
+      || !('version' in parsed)
+      || parsed.version !== currentCurriculumVersion()
     ) {
       sessionStorage.removeItem(`${CURRICULUM_CACHE_PREFIX}${key}`)
       return null
@@ -115,6 +134,7 @@ function requestCurriculum(view: 'teacher' | undefined, scope: string, key: stri
         subjects,
         fetchedAt,
         expiresAt: fetchedAt + CURRICULUM_SNAPSHOT_TTL_MS,
+        version: currentCurriculumVersion(),
       }))
     } catch (error) {
       console.warn('Could not cache curriculum for this browser tab.', error)
@@ -178,15 +198,17 @@ export async function saveCurriculum(subjects: CurriculumSubject[]): Promise<voi
   })
   if (!response.ok) throw new Error(await readError(response, 'Could not save curriculum.'))
   invalidateCurriculumCache()
+  bumpCurriculumVersion()
 }
 
 function storeCurriculumSnapshot(key: string, subjects: CurriculumSubject[], fetchedAt: number): void {
   try {
-    sessionStorage.setItem(`${CURRICULUM_CACHE_PREFIX}${key}`, JSON.stringify({
-      subjects,
-      fetchedAt,
-      expiresAt: Date.now() + CURRICULUM_SNAPSHOT_TTL_MS,
-    }))
+sessionStorage.setItem(`${CURRICULUM_CACHE_PREFIX}${key}`, JSON.stringify({
+    subjects,
+    fetchedAt,
+    expiresAt: Date.now() + CURRICULUM_SNAPSHOT_TTL_MS,
+    version: currentCurriculumVersion(),
+  }))
   } catch (error) {
     console.warn('Could not cache curriculum for this browser tab.', error)
   }
@@ -258,4 +280,13 @@ export async function saveNodeProgress(nodeId: string, attemptId?: string): Prom
     rewards: { xp: result.rewards.xp, gems: result.rewards.gems },
     quests: result.quests,
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === 'questly_curriculum_version') {
+      curriculumCache.clear()
+      curriculumRequests.clear()
+    }
+  })
 }

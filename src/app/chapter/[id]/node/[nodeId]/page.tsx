@@ -8,6 +8,9 @@ import { getChestBonusItem, CHEST_BONUS_DETAILS, type ChestBonusItem } from '@/s
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 import { loadCurriculum } from '@/src/lib/curriculumClient'
 import { getCurriculumResourceFormat, type CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
@@ -662,7 +665,9 @@ function LessonActivity({
       <div className="bg-white border-2 border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm">
         {content.kind === 'text' && (
           <div className="whitespace-pre-line font-medium text-slate-700 leading-relaxed text-lg">
-            {content.value}
+            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {content.value}
+            </ReactMarkdown>
           </div>
         )}
         {content.kind === 'poster' && (
@@ -1048,7 +1053,9 @@ function QuizActivity({
           )}
         </div>
         <h2 className="text-xl font-extrabold text-slate-700 mb-6">
-          {currentQuestion.prompt}
+          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+            {currentQuestion.prompt}
+          </ReactMarkdown>
         </h2>
         {correctOptionIds.length > 1 && (
           <p className="mb-4 text-sm font-bold text-slate-500">
@@ -1081,7 +1088,11 @@ function QuizActivity({
                 <span className="w-8 h-8 shrink-0 rounded-lg border-2 border-current/20 flex items-center justify-center text-sm">
                   {index + 1}
                 </span>
-                <span className="flex-1">{option.text}</span>
+                <span className="flex-1">
+                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                    {option.text}
+                  </ReactMarkdown>
+                </span>
                 {isChecked && correctOptionIds.includes(option.id) && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 {isChecked && isSelected && !correctOptionIds.includes(option.id) && <XCircle className="w-5 h-5 text-rose-600" />}
               </button>
