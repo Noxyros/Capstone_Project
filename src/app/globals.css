@@ -559,3 +559,27 @@ html.dark .auth-language-control {
     clip-path: inset(0 0 0 0 round 1rem);
   }
 }
+
+/* Rapid Sprint card global dark mode overrides */
+html.dark .border-slate-200\/80 {
+  border-color: #26383f !important;
+}
+
+html.dark .bg-amber-50\/80 {
+  background-color: rgba(245, 158, 11, 0.08) !important;
+}
+
+html.dark .shadow-slate-100 {
+  box-shadow: none !important;
+}
+
+/* Fix Rapid Sprint stats strip in dark mode */
+html.dark .bg-gradient-to-b.from-slate-50\/50 {
+  background-image: none !important;
+  background-color: #132026 !important;
+}
+
+html.dark .divide-slate-100 > :not(:last-child),
+html.dark .border-slate-100 {
+  border-color: #26383f !important;
+}
