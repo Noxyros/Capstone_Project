@@ -1,12 +1,12 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import Roadmap from '@/src/components/shared/Roadmap'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum, subscribeToCurriculumChanges } from '@/src/lib/curriculumClient'
 import type { CurriculumChapter, CurriculumSubject } from '@/src/lib/teacherContent'
 import { useAuth } from '@/src/context/AuthContext'
 
@@ -20,17 +20,32 @@ export default function SubmoduleRoadmapPage() {
   const [isLoading, setIsLoading] = useState(() => getCachedCurriculum(undefined, curriculumScope) === null)
   const [error, setError] = useState('')
 
+  const requestRef = useRef(0)
+
+  const fetchSubjects = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setIsLoading(true)
+    setError('')
+    try {
+      const result = await loadCurriculum(undefined, curriculumScope, { force: true })
+      if (requestId !== requestRef.current) return
+      setSubjects(result)
+    } catch (loadError) {
+      if (requestId !== requestRef.current) return
+      console.error('Failed to load submodule roadmap.', loadError)
+      setError(loadError instanceof Error ? loadError.message : 'Could not load this submodule.')
+    } finally {
+      if (requestId === requestRef.current) setIsLoading(false)
+    }
+  }, [curriculumScope])
+
   useEffect(() => {
-    let active = true
-    void loadCurriculum(undefined, curriculumScope)
-      .then((result) => { if (active) setSubjects(result) })
-      .catch((loadError) => {
-        console.error('Failed to load submodule roadmap.', loadError)
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this submodule.')
-      })
-      .finally(() => { if (active) setIsLoading(false) })
-    return () => { active = false }
-  }, [chapterId, curriculumScope, submoduleId])
+    const unsubscribe = subscribeToCurriculumChanges(() => {
+      void fetchSubjects()
+    })
+    void fetchSubjects()
+    return () => unsubscribe()
+  }, [fetchSubjects])
 
   const chapter: CurriculumChapter | undefined = subjects
     .flatMap((subject) => subject.chapters)

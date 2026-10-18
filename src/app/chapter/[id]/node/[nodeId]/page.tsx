@@ -11,7 +11,7 @@ import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { loadCurriculum } from '@/src/lib/curriculumClient'
+import { loadCurriculum, subscribeToCurriculumChanges } from '@/src/lib/curriculumClient'
 import { getCurriculumResourceFormat, type CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
 import { useAuth } from '@/src/context/AuthContext'
@@ -92,65 +92,79 @@ export default function NodeActivityPage() {
     router.prefetch(roadmapPath)
   }, [roadmapPath, router])
 
-  useEffect(() => {
-    let active = true
-    void loadCurriculum(undefined, curriculumScope)
-      .then((subjects) => {
-        const chapter = subjects.flatMap((subject) => subject.chapters).find((item) => item.id === chapterId)
-        const node: CurriculumNode | undefined = chapter?.nodes.find((item) => item.id === nodeId)
-        if (!active) return
-        if (!node) {
-          setLoadError(t('This learning activity is unavailable.', 'Aktivitas belajar ini tidak tersedia.'))
+  const requestRef = useRef(0)
+
+  const fetchNode = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setIsLoading(true)
+    setLoadError('')
+    try {
+      // force: true so a page reload (or cross-browser session) always reads the
+      // latest persisted curriculum instead of a stale sessionStorage snapshot.
+      const subjects = await loadCurriculum(undefined, curriculumScope, { force: true })
+      if (requestId !== requestRef.current) return
+      const chapter = subjects.flatMap((subject) => subject.chapters).find((item) => item.id === chapterId)
+      const node: CurriculumNode | undefined = chapter?.nodes.find((item) => item.id === nodeId)
+      if (!node) {
+        setLoadError(t('This learning activity is unavailable.', 'Aktivitas belajar ini tidak tersedia.'))
+        return
+      }
+      setNodeSubmoduleId(node.submoduleId ?? null)
+      if (node.type === 'quiz' || node.type === 'boss') {
+        setNodeData({
+          type: 'quiz',
+          title: node.title,
+          questions: node.questions,
+          isBoss: node.type === 'boss' || chapter?.nodes.at(-1)?.id === node.id,
+        })
+      } else if (node.type === 'treasure') {
+        const isItemReward = node.rewardCurrency === 'item' || (!node.rewardCurrency && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content))
+        if (!isItemReward && (!node.rewardCurrency || !node.rewardAmount)) {
+          setLoadError(t('This treasure reward is not configured.', 'Hadiah peti harta ini belum diatur.'))
           return
         }
-        setNodeSubmoduleId(node.submoduleId ?? null)
-        if (node.type === 'quiz' || node.type === 'boss') {
-          setNodeData({
-            type: 'quiz',
-            title: node.title,
-            questions: node.questions,
-            isBoss: node.type === 'boss' || chapter?.nodes.at(-1)?.id === node.id,
-          })
-        } else if (node.type === 'treasure') {
-          const isItemReward = node.rewardCurrency === 'item' || (!node.rewardCurrency && ['DOUBLE_XP', 'STREAK_FREEZE', 'HEART_REFILL'].includes(node.content))
-          if (!isItemReward && (!node.rewardCurrency || !node.rewardAmount)) {
-            setLoadError(t('This treasure reward is not configured.', 'Hadiah peti harta ini belum diatur.'))
-            return
-          }
-          setNodeData({
-            type: 'treasure',
-            title: node.title,
-            rewardCurrency: isItemReward ? 'item' : (node.rewardCurrency ?? 'xp'),
-            rewardAmount: isItemReward ? 1 : (node.rewardAmount ?? 10),
-            itemCode: isItemReward ? node.content : undefined,
-            isCompleted: node.status === 'completed',
-          })
-        } else {
-          const resourceFormat = getCurriculumResourceFormat(node.resourceUrl)
-          setNodeData({
-            type: 'lesson',
-            title: node.title,
-            content: node.contentType === 'text' || !node.resourceUrl
-              ? { kind: 'text', value: node.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') }
-              : node.contentType === 'poster' || resourceFormat === 'image'
-                ? { kind: 'poster', src: node.resourceUrl, alt: node.title }
-                : {
+        setNodeData({
+          type: 'treasure',
+          title: node.title,
+          rewardCurrency: isItemReward ? 'item' : (node.rewardCurrency ?? 'xp'),
+          rewardAmount: isItemReward ? 1 : (node.rewardAmount ?? 10),
+          itemCode: isItemReward ? node.content : undefined,
+          isCompleted: node.status === 'completed',
+        })
+      } else {
+        const resourceFormat = getCurriculumResourceFormat(node.resourceUrl)
+        setNodeData({
+          type: 'lesson',
+          title: node.title,
+          content: node.contentType === 'text' || !node.resourceUrl
+            ? { kind: 'text', value: node.content || t('This lesson has no content yet.', 'Materi pelajaran ini belum tersedia.') }
+            : node.contentType === 'poster' || resourceFormat === 'image'
+              ? { kind: 'poster', src: node.resourceUrl, alt: node.title }
+              : {
                   kind: 'material',
                   src: node.resourceUrl,
-                    format: resourceFormat === 'pdf'
-                      ? 'pdf'
-                      : resourceFormat === 'presentation' ? 'file' : 'ebook',
-                  },
-          })
-        }
-      })
-      .catch((error) => {
-        console.error('Failed to load learning activity.', error)
-        if (active) setLoadError(error instanceof Error ? error.message : t('Could not load this activity.', 'Tidak dapat memuat aktivitas ini.'))
-      })
-      .finally(() => { if (active) setIsLoading(false) })
-    return () => { active = false }
+                  format: resourceFormat === 'pdf'
+                    ? 'pdf'
+                    : resourceFormat === 'presentation' ? 'file' : 'ebook',
+                },
+        })
+      }
+    } catch (error) {
+      if (requestId !== requestRef.current) return
+      console.error('Failed to load learning activity.', error)
+      setLoadError(error instanceof Error ? error.message : t('Could not load this activity.', 'Tidak dapat memuat aktivitas ini.'))
+    } finally {
+      if (requestId === requestRef.current) setIsLoading(false)
+    }
   }, [chapterId, curriculumScope, nodeId, t])
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCurriculumChanges(() => {
+      void fetchNode()
+    })
+    void fetchNode()
+    return () => unsubscribe()
+  }, [fetchNode])
 
   useEffect(() => {
     if (!isExitDialogOpen) return

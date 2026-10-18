@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { ArrowLeft, CheckCircle2, Circle, Lock, Play } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum, subscribeToCurriculumChanges } from '@/src/lib/curriculumClient'
 import { localizeSubjectName } from '@/src/lib/curriculumLocalization'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { useAuth } from '@/src/context/AuthContext'
@@ -20,16 +20,29 @@ export default function SubjectDetailPage() {
   const [subjects, setSubjects] = useState<CurriculumSubject[]>(() => getCachedCurriculum(undefined, curriculumScope) ?? [])
   const [error, setError] = useState('')
 
-  useEffect(() => {
-    let active = true
-    void loadCurriculum(undefined, curriculumScope)
-      .then((result) => { if (active) setSubjects(result) })
-      .catch((loadError) => {
-        console.error('Failed to load learner curriculum.', loadError)
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this subject.')
-      })
-    return () => { active = false }
+  const requestRef = useRef(0)
+
+  const fetchSubjects = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setError('')
+    try {
+      const result = await loadCurriculum(undefined, curriculumScope, { force: true })
+      if (requestId !== requestRef.current) return
+      setSubjects(result)
+    } catch (loadError) {
+      if (requestId !== requestRef.current) return
+      console.error('Failed to load learner curriculum.', loadError)
+      setError(loadError instanceof Error ? loadError.message : 'Could not load this subject.')
+    }
   }, [curriculumScope])
+
+  useEffect(() => {
+    const unsubscribe = subscribeToCurriculumChanges(() => {
+      void fetchSubjects()
+    })
+    void fetchSubjects()
+    return () => unsubscribe()
+  }, [fetchSubjects])
 
   const subject = subjects.find((item) => item.id === subjectId)
   const firstAvailableChapter = subject?.chapters.find((chapter) => chapter.chaptersStatus !== 'locked')

@@ -1,11 +1,11 @@
 'use client'
 
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, BookOpen, CheckCircle2, Lock, Play } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useLanguage } from '@/src/context/LanguageContext'
-import { getCachedCurriculum, loadCurriculum } from '@/src/lib/curriculumClient'
+import { getCachedCurriculum, loadCurriculum, subscribeToCurriculumChanges } from '@/src/lib/curriculumClient'
 import type { CurriculumSubject } from '@/src/lib/teacherContent'
 import { useAuth } from '@/src/context/AuthContext'
 
@@ -20,17 +20,32 @@ export default function ChapterRoadmapPage() {
   const [isLoading, setIsLoading] = useState(() => getCachedCurriculum(undefined, curriculumScope) === null)
   const [error, setError] = useState('')
 
+  const requestRef = useRef(0)
+
+  const fetchSubjects = useCallback(async () => {
+    const requestId = ++requestRef.current
+    setIsLoading(true)
+    setError('')
+    try {
+      const result = await loadCurriculum(undefined, curriculumScope, { force: true })
+      if (requestId !== requestRef.current) return
+      setSubjects(result)
+    } catch (loadError) {
+      if (requestId !== requestRef.current) return
+      console.error('Failed to load learner curriculum.', loadError)
+      setError(loadError instanceof Error ? loadError.message : 'Could not load this roadmap.')
+    } finally {
+      if (requestId === requestRef.current) setIsLoading(false)
+    }
+  }, [curriculumScope])
+
   useEffect(() => {
-    let active = true
-    void loadCurriculum(undefined, curriculumScope)
-      .then((result) => { if (active) setSubjects(result) })
-      .catch((loadError) => {
-        console.error('Failed to load learner curriculum.', loadError)
-        if (active) setError(loadError instanceof Error ? loadError.message : 'Could not load this roadmap.')
-      })
-      .finally(() => { if (active) setIsLoading(false) })
-    return () => { active = false }
-  }, [chapterId, curriculumScope])
+    const unsubscribe = subscribeToCurriculumChanges(() => {
+      void fetchSubjects()
+    })
+    void fetchSubjects()
+    return () => unsubscribe()
+  }, [fetchSubjects])
 
   const chapterData = subjects.flatMap((subject) => subject.chapters).find((chapter) => chapter.id === chapterId)
   const parentSubjectId = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))?.id

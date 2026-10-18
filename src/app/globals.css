@@ -351,6 +351,15 @@ html.dark .border-rose-200 {
   border-color: #613347 !important;
 }
 
+/* Final challenge / quiz finished card — keep rose & amber icon text from shining neon in dark mode */
+html.dark .text-rose-600 {
+  color: #fda4af !important;
+}
+
+html.dark .text-amber-500 {
+  color: #fcd34d !important;
+}
+
 /* Stats panel border */
 .stats-panel-border {
   border-color: #e2e8f0 !important;
