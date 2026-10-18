@@ -35,6 +35,7 @@ const RATE_WINDOW_MS = 60_000
 const MAX_HISTORY_MESSAGES = 12
 const MAX_MESSAGE_LENGTH = 2_000
 const MAX_CONTEXT_LENGTH = 12_000
+const MAX_IMAGE_BYTES = 4_000_000 // 4 MB cap for images sent to the vision model
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
@@ -96,6 +97,26 @@ function isTutorRequest(value: unknown): value is TutorRequest {
   } catch {
     return false
   }
+}
+
+/**
+ * Fetches an image URL server-side and converts it to a base64 data URI.
+ * Groq's vision input reliably accepts base64 data URIs; arbitrary remote URLs
+ * may be rejected or fail to load from Groq's backend, so we normalize here.
+ */
+async function imageUrlToDataUrl(url: string): Promise<string> {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Could not fetch the image from its URL.')
+  const contentType = response.headers.get('content-type') ?? 'image/png'
+  if (!contentType.startsWith('image/')) {
+    throw new Error('The URL does not point to an image.')
+  }
+  const buffer = await response.arrayBuffer()
+  if (buffer.byteLength > MAX_IMAGE_BYTES) {
+    throw new Error('The image is too large to send to the tutor. Please use a smaller image.')
+  }
+  const base64 = Buffer.from(buffer).toString('base64')
+  return `data:${contentType};base64,${base64}`
 }
 
 function consumeRateLimit(request: Request): boolean {
@@ -190,10 +211,29 @@ export async function POST(request: Request) {
     )
   }
 
-  const isImageRequest = body.context.kind === 'lesson' && body.context.media?.type === 'image'
+  const lessonContext = body.context.kind === 'lesson' ? body.context : null
+  const isImageRequest = lessonContext?.media?.type === 'image'
   const model = isImageRequest
     ? process.env.GROQ_VISION_MODEL?.trim() || 'qwen/qwen3.8-27b'
     : process.env.GROQ_MODEL?.trim() || 'openai/gpt-oss-20b'
+
+  // Normalize the image to a base64 data URI so Groq's vision backend always
+  // receives a universally-accepted format instead of a remote URL it may reject.
+  let imageDataUrl: string | undefined
+  let mediaUrl: string | undefined
+  const media = lessonContext?.media
+  if (media?.type === 'image') {
+    mediaUrl = media.url
+    try {
+      imageDataUrl = await imageUrlToDataUrl(media.url)
+    } catch (error) {
+      console.error('Failed to normalize tutor image URL.', error)
+      return NextResponse.json(
+        { error: 'Could not load the image from its URL. Please check the link and try again.', code: 'image_load_failed' },
+        { status: 400 }
+      )
+    }
+  }
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 25_000)
   let streamReturned = false
@@ -223,7 +263,7 @@ export async function POST(request: Request) {
               role: 'user' as const,
               content: [
                 { type: 'text' as const, text: message.text },
-                { type: 'image_url' as const, image_url: { url: body.context.media.url } },
+                { type: 'image_url' as const, image_url: { url: imageDataUrl ?? mediaUrl ?? '' } },
               ],
             }
           }),
