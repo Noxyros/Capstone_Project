@@ -290,20 +290,20 @@ export default function RapidSprintPage() {
           </button>
         </section>
       ) : (
-        <section className="relative overflow-hidden rounded-[32px] border-2 border-slate-200/80 bg-white p-6 shadow-xl shadow-slate-100 sm:p-9">
+        <section className="relative overflow-hidden rounded-[32px] border-2 border-slate-200/80 dark:border-[#26383f] bg-white dark:bg-[#162329] p-6 shadow-xl shadow-slate-100 dark:shadow-none sm:p-9">
           {/* Decorative subtle ambient backdrop element */}
-          <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-amber-50/80 blur-2xl pointer-events-none" />
+          <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-amber-50/80 dark:bg-amber-950/20 blur-2xl pointer-events-none" />
 
           {/* Header Info */}
           <div className="relative z-10">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100/80 px-3.5 py-1 text-xs font-black uppercase tracking-wider text-amber-800">
-              <Sparkles className="h-3.5 w-3.5 text-amber-600" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-100/80 dark:bg-amber-950/60 px-3.5 py-1 text-xs font-black uppercase tracking-wider text-amber-800 dark:text-amber-300">
+              <Sparkles className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400" />
               {t('Timed Challenge', 'Tantangan Waktu')}
             </span>
-            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 sm:text-3xl">
+            <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-900 dark:text-[#edf5f7] sm:text-3xl">
               {t('Ready to race the clock?', 'Siap beradu dengan waktu?')}
             </h2>
-            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500 sm:text-base">
+            <p className="mt-2 text-sm font-medium leading-relaxed text-slate-500 dark:text-[#8fa5ab] sm:text-base">
               {t(
                 'Power through 10 quick-fire questions back-to-back. Build up your reflexes and lock in your daily XP bonus.',
                 'Selesaikan 10 soal kilat berturut-turut. Asah refleks berpikirmu dan amankan bonus XP harianmu.'
@@ -312,24 +312,24 @@ export default function RapidSprintPage() {
           </div>
 
           {/* Redesigned Human-Crafted Stats Strip */}
-          <div className="relative z-10 mt-6 grid grid-cols-3 divide-x divide-slate-100 rounded-2xl border-2 border-slate-100 bg-gradient-to-b from-slate-50/50 to-slate-50/80 p-4 text-center">
+          <div className="relative z-10 mt-6 grid grid-cols-3 divide-x divide-slate-100 dark:divide-[#26383f] rounded-2xl border-2 border-slate-100 dark:border-[#26383f] bg-gradient-to-b from-slate-50/50 to-slate-50/80 dark:from-[#132026] dark:to-[#132026] p-4 text-center">
             <div className="px-2">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('Time limit', 'Batas waktu')}</p>
-              <div className="mt-1 flex items-center justify-center gap-1.5 text-slate-800 font-black text-sm sm:text-base">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-[#8fa5ab]">{t('Time limit', 'Batas waktu')}</p>
+              <div className="mt-1 flex items-center justify-center gap-1.5 text-slate-800 dark:text-[#edf5f7] font-black text-sm sm:text-base">
                 <Clock3 className="h-4 w-4 text-amber-500 shrink-0" />
                 <span>{t('2m 00s', '2m 00d')}</span>
               </div>
             </div>
             <div className="px-2">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('Questions', 'Jumlah soal')}</p>
-              <div className="mt-1 flex items-center justify-center gap-1.5 text-slate-800 font-black text-sm sm:text-base">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-[#8fa5ab]">{t('Questions', 'Jumlah soal')}</p>
+              <div className="mt-1 flex items-center justify-center gap-1.5 text-slate-800 dark:text-[#edf5f7] font-black text-sm sm:text-base">
                 <Target className="h-4 w-4 text-indigo-500 shrink-0" />
                 <span>10</span>
               </div>
             </div>
             <div className="px-2">
-              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{t('Reward', 'Hadiah')}</p>
-              <div className="mt-1 flex items-center justify-center gap-1 text-amber-600 font-black text-sm sm:text-base">
+              <p className="text-[10px] font-black uppercase tracking-wider text-slate-400 dark:text-[#8fa5ab]">{t('Reward', 'Hadiah')}</p>
+              <div className="mt-1 flex items-center justify-center gap-1 text-amber-600 dark:text-amber-400 font-black text-sm sm:text-base">
                 <Zap className="h-4 w-4 fill-amber-500 text-amber-500 shrink-0" />
                 <span>+30 XP</span>
               </div>
@@ -337,7 +337,7 @@ export default function RapidSprintPage() {
           </div>
 
           {/* Clean Minimalist Rules List */}
-          <div className="relative z-10 mt-5 space-y-2 rounded-2xl border border-slate-100 bg-white p-4 text-xs font-bold text-slate-500 sm:text-sm">
+          <div className="relative z-10 mt-5 space-y-2 rounded-2xl border border-slate-100 dark:border-[#26383f] bg-white dark:bg-[#132026] p-4 text-xs font-bold text-slate-500 dark:text-[#8fa5ab] sm:text-sm">
             <div className="flex items-center gap-2.5">
               <ShieldCheck className="h-4 w-4 shrink-0 text-emerald-500" />
               <span>{t('Zero heart penalty — practice entirely risk-free.', 'Bebas penalti nyawa — latihan sepenuhnya tanpa risiko.')}</span>
@@ -349,12 +349,12 @@ export default function RapidSprintPage() {
           </div>
 
           {error && (
-            <div role="alert" className="relative z-10 mt-5 rounded-2xl border-2 border-rose-200 bg-rose-50 p-4">
-              <p className="font-bold text-rose-700 text-sm">{error}</p>
+            <div role="alert" className="relative z-10 mt-5 rounded-2xl border-2 border-rose-200 dark:border-rose-900/50 bg-rose-50 dark:bg-rose-950/40 p-4">
+              <p className="font-bold text-rose-700 dark:text-rose-300 text-sm">{error}</p>
               <button
                 type="button"
                 onClick={() => setRetryCount((count) => count + 1)}
-                className="mt-3 min-h-9 rounded-xl border border-rose-300 bg-white px-3 text-xs font-extrabold text-rose-700 hover:bg-rose-100"
+                className="mt-3 min-h-9 rounded-xl border border-rose-300 dark:border-rose-800 bg-white dark:bg-[#162329] px-3 text-xs font-extrabold text-rose-700 dark:text-rose-300 hover:bg-rose-100 dark:hover:bg-rose-900/50"
               >
                 {t('Try again', 'Coba lagi')}
               </button>
@@ -362,8 +362,8 @@ export default function RapidSprintPage() {
           )}
 
           {!isLoading && !error && questions.length < 10 && (
-            <div className="relative z-10 mt-5 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4">
-              <p className="text-xs font-bold text-amber-800">
+            <div className="relative z-10 mt-5 rounded-2xl border-2 border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/40 p-4">
+              <p className="text-xs font-bold text-amber-800 dark:text-amber-300">
                 {t(
                   'Rapid Sprint requires at least 10 published questions. Keep learning!',
                   'Tantangan Cepat membutuhkan setidaknya 10 soal yang dipublikasikan. Terus belajar!'
@@ -379,11 +379,10 @@ export default function RapidSprintPage() {
             onClick={() => {
               if (questions.length >= 10 && !isLoading) setIsStarted(true)
             }}
-            className={`relative z-10 mt-6 flex min-h-14 w-full items-center justify-center gap-2.5 rounded-2xl border-b-4 px-6 py-4 text-lg font-black transition-all ${
-              isLoading || questions.length < 10 || Boolean(error)
-                ? 'border-slate-300 bg-slate-200 text-slate-400 cursor-not-allowed'
+            className={`relative z-10 mt-6 flex min-h-14 w-full items-center justify-center gap-2.5 rounded-2xl border-b-4 px-6 py-4 text-lg font-black transition-all ${isLoading || questions.length < 10 || Boolean(error)
+                ? 'border-slate-300 dark:border-[#26383f] bg-slate-200 dark:bg-[#203038] text-slate-400 dark:text-[#71878d] cursor-not-allowed'
                 : 'border-amber-800 bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/25 active:translate-y-1 active:border-b-0 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-amber-200'
-            }`}
+              }`}
           >
             <Zap className={`h-5 w-5 fill-current ${isLoading ? 'animate-pulse' : ''}`} />
             {isLoading
