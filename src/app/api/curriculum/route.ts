@@ -8,7 +8,7 @@ function curriculumInclude(userId: string, teacherView: boolean) {
   return {
     grade: true,
     chapters: {
-      where: teacherView ? undefined : { isPublished: true },
+      where: teacherView ? undefined : undefined,
       orderBy: { order: 'asc' as const },
       include: {
         submodules: {
@@ -17,7 +17,6 @@ function curriculumInclude(userId: string, teacherView: boolean) {
         },
         nodes: {
           where: teacherView ? undefined : {
-            isPublished: true,
             OR: [{ submoduleId: null }, { submodule: { isPublished: true } }],
           },
           orderBy: { order: 'asc' as const },
@@ -63,7 +62,9 @@ function toCurriculumSubject(
             : node.type === RoadmapNodeType.TREASURE ? 'treasure' as const : 'lesson' as const,
         status: teacherView
           ? node.isPublished ? 'current' as const : 'locked' as const
-          : node.progress.some((progress) => progress.userId === userId && progress.completedAt !== null) ? 'completed' as const : 'current' as const,
+          : !chapter.isPublished ? 'locked' as const
+            : !node.isPublished ? 'locked' as const
+              : node.progress.some((progress) => progress.userId === userId && progress.completedAt !== null) ? 'completed' as const : 'current' as const,
         contentType: node.contentType === RoadmapContentType.POSTER
           ? 'poster' as const
           : node.contentType === RoadmapContentType.MATERIAL ? 'material' as const : 'text' as const,
@@ -97,9 +98,9 @@ function toCurriculumSubject(
           summary: submodule.summaryText,
           isPublished: submodule.isPublished,
         })),
-        chaptersStatus: teacherView
+chaptersStatus: teacherView
           ? chapter.isPublished ? 'in_progress' as const : 'locked' as const
-          : nodes.length > 0 && nodes.every((node) => node.status === 'completed') ? 'completed' as const : 'in_progress' as const,
+          : chapter.isPublished && nodes.length > 0 && nodes.every((node) => node.status === 'completed') ? 'completed' as const : 'in_progress' as const,
         nodes,
       }
     }),
