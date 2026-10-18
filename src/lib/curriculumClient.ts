@@ -11,6 +11,25 @@ const CURRICULUM_SNAPSHOT_TTL_MS = 24 * 60 * 60 * 1000
 const curriculumCache = new Map<string, { subjects: CurriculumSubject[]; fetchedAt: number }>()
 const curriculumRequests = new Map<string, Promise<CurriculumSubject[]>>()
 
+// Cross-tab curriculum change notification. BroadcastChannel reaches every tab
+// of the same origin (including a student tab opened alongside the teacher tab).
+// The localStorage version bump (see storage listener below) covers same-browser
+// tabs; BroadcastChannel delivers the invalidation without relying on storage events.
+const CURRICULUM_BROADCAST_CHANNEL = 'questly:curriculum'
+let curriculumChannel: BroadcastChannel | null = null
+
+function getCurriculumChannel(): BroadcastChannel | null {
+  if (typeof window === 'undefined') return null
+  if (!curriculumChannel) {
+    try {
+      curriculumChannel = new BroadcastChannel(CURRICULUM_BROADCAST_CHANNEL)
+    } catch {
+      return null
+    }
+  }
+  return curriculumChannel
+}
+
 function currentCurriculumVersion(): number {
   try {
     return Number(localStorage.getItem(CURRICULUM_VERSION_KEY) ?? 0)
@@ -149,16 +168,20 @@ function requestCurriculum(view: 'teacher' | undefined, scope: string, key: stri
   return request
 }
 
-export function loadCurriculum(view?: 'teacher', scope = 'public'): Promise<CurriculumSubject[]> {
+export function loadCurriculum(
+  view?: 'teacher',
+  scope = 'public',
+  options: { force?: boolean } = {},
+): Promise<CurriculumSubject[]> {
   const key = cacheKey(view, scope)
   getCachedCurriculum(view, scope)
   const cached = curriculumCache.get(key)
-  if (cached && Date.now() - cached.fetchedAt < CURRICULUM_CACHE_TTL_MS) {
+  if (!options.force && cached && Date.now() - cached.fetchedAt < CURRICULUM_CACHE_TTL_MS) {
     return Promise.resolve(cached.subjects)
   }
 
   const inFlight = curriculumRequests.get(key)
-  if (cached) {
+  if (cached && !options.force) {
     if (!inFlight) {
       void requestCurriculum(view, scope, key).catch((error: unknown) => {
         console.error('Failed to refresh cached learner curriculum in the background.', error)
@@ -197,8 +220,37 @@ export async function saveCurriculum(subjects: CurriculumSubject[]): Promise<voi
     body: JSON.stringify({ subjects }),
   })
   if (!response.ok) throw new Error(await readError(response, 'Could not save curriculum.'))
-  invalidateCurriculumCache()
+  notifyCurriculumChanged()
+}
+
+/**
+ * Notify every tab/session of this origin that the curriculum was persisted.
+ * Other tabs invalidate their local curriculum caches and refetch on next load,
+ * so a teacher edit becomes visible to a student tab sharing the same origin
+ * without a manual refresh. Cross-browser sessions pick up the change on reload
+ * because loadCurriculum is called with { force: true } from student pages.
+ */
+export function notifyCurriculumChanged(): void {
   bumpCurriculumVersion()
+  invalidateCurriculumCache()
+  const channel = getCurriculumChannel()
+  if (channel) {
+    channel.postMessage({ type: 'curriculum-changed', at: Date.now() })
+  }
+}
+
+export function subscribeToCurriculumChanges(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => {}
+  const channel = getCurriculumChannel()
+  if (!channel) return () => {}
+  const handler = (event: MessageEvent<{ type?: string }>) => {
+    if (event.data?.type === 'curriculum-changed') {
+      invalidateCurriculumCache()
+      listener()
+    }
+  }
+  channel.addEventListener('message', handler)
+  return () => channel.removeEventListener('message', handler)
 }
 
 function storeCurriculumSnapshot(key: string, subjects: CurriculumSubject[], fetchedAt: number): void {

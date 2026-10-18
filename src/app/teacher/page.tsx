@@ -1059,8 +1059,8 @@ export default function TeacherPage() {
                     </button>
                   )}
                   {selectedSubmodule && !isPreview && (
-                    <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
-                      <label>
+                    <div className="sm:col-span-2 min-w-0">
+                      <label className="block min-w-0 w-full">
                         <span className={labelClass}>{t('Submodule title', 'Judul submodul')}</span>
                         <input
                           className={inputClass}
@@ -1099,19 +1099,16 @@ export default function TeacherPage() {
                     {selectedNodes.map((node, index) => {
                       const isSelected = node.id === selectedNode?.id
                       const NodeIcon = node.type === 'boss' ? Swords : node.type === 'quiz' ? Gamepad2 : node.type === 'treasure' ? Gift : FileText
-                      const statusLabel = node.status === 'completed'
-                        ? t('Completed', 'Selesai')
-                        : node.status === 'locked'
-                          ? t('Locked', 'Terkunci')
-                          : t('Available', 'Tersedia')
-                      const statusClass = node.status === 'completed'
-                        ? 'bg-emerald-100 text-emerald-700'
-                        : node.status === 'locked'
-                          ? 'bg-slate-100 text-slate-500'
-                          : 'bg-indigo-50 text-indigo-700'
+                      const isUnavailable = node.status === 'locked'
+                      const statusLabel = isUnavailable
+                        ? t('Unavailable', 'Tidak tersedia')
+                        : t('Available', 'Tersedia')
+                      const statusClass = isUnavailable
+                        ? 'bg-slate-100 text-slate-600'
+                        : 'bg-indigo-50 text-indigo-700'
 
                       const isLeft = index % 2 === 0
-                      const strokeColorClass = node.status === 'completed' ? 'text-sky-400' : 'text-slate-200'
+                      const strokeColorClass = isUnavailable ? 'text-slate-200' : 'text-indigo-200'
 
                       return (
                         <React.Fragment key={node.id}>
@@ -1120,14 +1117,12 @@ export default function TeacherPage() {
                           type="button"
                           onClick={() => setSelectedNodeId(node.id)}
                           aria-current={isSelected ? 'step' : undefined}
-                          className={`relative flex w-[260px] items-center gap-3 rounded-2xl border-[3px] bg-white p-3 text-left shadow-sm transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-[320px] sm:gap-4 sm:p-4 ${isLeft ? '-translate-x-6 sm:-translate-x-8' : 'translate-x-6 sm:translate-x-8'} ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-100' : node.status === 'completed' ? 'border-emerald-200' : node.status === 'locked' ? 'border-slate-200' : 'border-slate-100'}`}
+                          className={`relative flex w-[260px] items-center gap-3 rounded-2xl border-[3px] bg-white p-3 text-left shadow-sm transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-[320px] sm:gap-4 sm:p-4 ${isLeft ? '-translate-x-6 sm:-translate-x-8' : 'translate-x-6 sm:translate-x-8'} ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-100' : isUnavailable ? 'border-slate-200' : 'border-slate-100'}`}
                         >
                             <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white ${node.type === 'boss' ? 'bg-rose-600' : node.type === 'quiz' ? 'bg-violet-500' : node.type === 'treasure' ? 'bg-amber-500' : 'bg-sky-500'}`}>
-                              {node.status === 'completed'
-                                ? <CheckCircle2 className="h-6 w-6" />
-                                : node.status === 'locked'
-                                  ? <LockKeyhole className="h-5 w-5" />
-                                  : <NodeIcon className="h-6 w-6" />}
+                              {isUnavailable
+                                ? <LockKeyhole className="h-5 w-5" />
+                                : <NodeIcon className="h-6 w-6" />}
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="flex items-center justify-between gap-2">
@@ -1538,33 +1533,31 @@ function NodeEditor({
             <option value="lesson">{t('Lesson / material', 'Pelajaran / materi')}</option><option value="quiz">{t('Quiz', 'Kuis')}</option><option value="boss">{t('Final boss', 'Bos akhir')}</option><option value="treasure">{t('Treasure chest', 'Peti harta')}</option>
           </select>
         </label>
-        <label className="sm:hidden"><span className={labelClass}>{t('Node status', 'Status node')}</span>
-          <select className={inputClass} value={node.status} onChange={(event) => updateNode((current) => ({ ...current, status: event.target.value as CurriculumNode['status'] }))}>
-            <option value="current">{t('Available', 'Tersedia')}</option><option value="completed">{t('Completed', 'Selesai')}</option><option value="locked">{t('Locked', 'Terkunci')}</option>
-          </select>
-        </label>
-        <fieldset className="hidden sm:col-span-3 sm:block">
+        <fieldset className="sm:col-span-3 min-w-0">
           <legend className={labelClass}>{t('Node status', 'Status node')}</legend>
-          <div className="grid w-full grid-cols-3 gap-2">
+          <div className="grid w-full grid-cols-2 gap-2">
             {([
               ['current', t('Available', 'Tersedia')],
-              ['completed', t('Completed', 'Selesai')],
-              ['locked', t('Locked', 'Terkunci')],
-            ] as const).map(([status, label]) => (
-              <button
-                key={status}
-                type="button"
-                aria-pressed={node.status === status}
-                onClick={() => updateNode((current) => ({ ...current, status }))}
-                className={`w-full min-w-0 rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${
-                  node.status === status
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
-                    : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+              ['locked', t('Unavailable', 'Tidak tersedia')],
+            ] as const).map(([status, label]) => {
+              const isActive = (node.status === 'locked' ? 'locked' : 'current') === status
+
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => updateNode((current) => ({ ...current, status }))}
+                  className={`w-full min-w-0 rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${
+                    isActive
+                      ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40'
+                  }`}
+                >
+                  {label}
+                </button>
+              )
+            })}
           </div>
         </fieldset>
       </div>
