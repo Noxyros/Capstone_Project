@@ -23,9 +23,18 @@ import { loadCurriculum, saveCurriculum } from '@/src/lib/curriculumClient'
 import { useAuth } from '@/src/context/AuthContext'
 import { getCachedCurriculum } from '@/src/lib/curriculumClient'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
 
 const inputClass = 'w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-400'
 const labelClass = 'mb-1.5 block text-xs font-extrabold uppercase tracking-wide text-slate-500'
+
+// Renders Markdown paragraphs as plain inline content so ReactMarkdown never
+// emits a <p> inside another <p> (or forces a line break after a "1." label).
+const inlineMarkdownComponents = {
+  p: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
+}
 
 function makeQuestion(): CurriculumQuestion {
   return {
@@ -1281,28 +1290,47 @@ function NodePreview({ node, t }: {
                 </a>
               </div>
             ) : (
-              <p className="select-text whitespace-pre-line text-sm font-medium leading-relaxed text-slate-700">
-                {node.content || t('Lesson text will appear here once added.', 'Teks pelajaran akan tampil di sini setelah ditambahkan.')}
-              </p>
+              <div className="select-text whitespace-pre-line text-sm font-medium leading-relaxed text-slate-700">
+                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {node.content || t('Lesson text will appear here once added.', 'Teks pelajaran akan tampil di sini setelah ditambahkan.')}
+                </ReactMarkdown>
+              </div>
             )}
           </div>
         ) : node.type === 'treasure' ? (
           <div className="mt-4 flex items-center gap-3 rounded-2xl border-2 border-amber-200 bg-amber-50 p-4 text-amber-800">
             <Gift className="h-6 w-6 shrink-0" />
             <span className="font-extrabold">
-              {node.rewardAmount ?? 10} {node.rewardCurrency === 'gems' ? t('gems', 'permata') : 'XP'}
+              {node.rewardCurrency === 'item'
+                ? (node.content || t('Power-up', 'Power-up'))
+                : `${node.rewardAmount ?? 10} ${node.rewardCurrency === 'gems' ? t('gems', 'permata') : 'XP'}`}
             </span>
           </div>
         ) : node.questions.length > 0 ? (
           <div className="mt-4 space-y-4">
             {node.questions.map((question, index) => (
               <div key={question.id} className="space-y-2">
-                <p className="select-text font-bold text-slate-700">{index + 1}. {question.prompt || t('Question prompt', 'Teks pertanyaan')}</p>
+                <div className="select-text font-bold text-slate-700">
+                  {index + 1}.{' '}
+                  <ReactMarkdown
+                    remarkPlugins={[remarkMath]}
+                    rehypePlugins={[rehypeKatex]}
+                    components={inlineMarkdownComponents}
+                  >
+                    {question.prompt || t('Question prompt', 'Teks pertanyaan')}
+                  </ReactMarkdown>
+                </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {question.options.map((option, optionIndex) => (
                     <div key={option.id} className="select-text rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
                       <span className="mr-2 text-xs font-extrabold text-slate-400">{optionIndex + 1}.</span>
-                      {option.text || t('Answer choice', 'Pilihan jawaban')}
+                      <ReactMarkdown
+                        remarkPlugins={[remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={inlineMarkdownComponents}
+                      >
+                        {option.text || t('Answer choice', 'Pilihan jawaban')}
+                      </ReactMarkdown>
                     </div>
                   ))}
                 </div>
