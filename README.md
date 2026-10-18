@@ -33,37 +33,6 @@ A curriculum and roadmap learning platform with a teacher content studio and stu
 - `pdfjs-dist` (PDF preview and text extraction)
 - Groq (AI tutor)
 
-## Setup
-
-Create `.env.local` in the project root:
-
-```env
-DATABASE_URL=postgresql://...
-DIRECT_URL=postgresql://...
-NEXT_PUBLIC_SUPABASE_URL=https://...supabase.co
-NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
-SUPABASE_SERVICE_ROLE_KEY=sb_secret_...
-
-GROQ_API_KEY=your_groq_key
-GROQ_VISION_MODEL=llama-3.2-11b-vision-preview
-```
-
-Install and run:
-
-```bash
-npm install
-npm run dev      # development server
-npm run build    # production build (generates Prisma client too)
-npm start        # production server
-```
-
-Database:
-
-```bash
-npx prisma migrate deploy
-npx prisma generate
-```
-
 ## Project structure
 
 ```
@@ -83,8 +52,3 @@ prisma/schema.prisma   # Database schema
 ## Curriculum flow
 
 Teacher edits in `/teacher` → `PUT /api/curriculum` persists to the database → student pages load from `GET /api/curriculum`. Teacher edits broadcast to open tabs and appear on reload, so students see the latest saved content.
-
-## Verify
-
-Typecheck: `npx tsc --noEmit`
-Build: `npm run build`
