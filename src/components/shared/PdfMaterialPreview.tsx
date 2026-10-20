@@ -202,7 +202,7 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
     void import('pdfjs-dist')
       .then((pdfjsLib) => {
         if (!active) return
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         return fetch(src).then((response) => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           return response.arrayBuffer()
