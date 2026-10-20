@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
+import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
 import { Maximize2, X } from 'lucide-react'
 
 type Translate = (en: string, id: string) => string
@@ -194,15 +194,15 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
   // Fetches the file as an ArrayBuffer first to bypass mobile CORS and range-request restrictions.
   useEffect(() => {
     let active = true
-    let loadingTask: ReturnType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').getDocument> | undefined
+    let loadingTask: ReturnType<typeof import('pdfjs-dist').getDocument> | undefined
 
     setPdf(null)
     setHasError(false)
 
-    void import('pdfjs-dist/legacy/build/pdf.mjs')
+    void import('pdfjs-dist')
       .then((pdfjsLib) => {
         if (!active) return
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.legacy.min.mjs';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs';
         return fetch(src).then((response) => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           return response.arrayBuffer()
@@ -462,114 +462,56 @@ function PdfPage({
 
     let active = true
     let renderTask: ReturnType<PDFPageProxy['render']> | undefined
-    let textLayer: InstanceType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').TextLayer> | undefined
+    let textLayer: InstanceType<typeof import('pdfjs-dist').TextLayer> | undefined
 
     void (async () => {
       const baseViewport = page.getViewport({ scale: 1 })
       const viewport = page.getViewport({ scale: renderWidth / baseViewport.width })
 
-      // Sharp on retina screens, but Safari has smaller canvas limits than Chrome.
-      // Cap output scale conservatively and clamp absolute dimensions so we never
-      // exceed Safari's canvas size budget.
-      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 1.5)
+      // Sharp on retina screens, but never beyond the browser's canvas budget.
+      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2)
       const pixelBudgetScale = Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height))
-      let outputScale = Math.min(devicePixelRatio, pixelBudgetScale)
+      const outputScale = Math.min(devicePixelRatio, pixelBudgetScale)
 
-      const maxSide = 2048
-      const sideScale = Math.min(1, maxSide / Math.max(viewport.width, viewport.height))
-      outputScale = Math.min(outputScale, sideScale)
+      const buffer = document.createElement('canvas')
+      buffer.width = Math.floor(viewport.width * outputScale)
+      buffer.height = Math.floor(viewport.height * outputScale)
+      const bufferContext = buffer.getContext('2d')
+      if (!bufferContext) throw new Error('Canvas rendering is unavailable.')
 
-      let buffer: HTMLCanvasElement | null = null
-      try {
-        buffer = document.createElement('canvas')
-        buffer.width = Math.max(1, Math.floor(viewport.width * outputScale))
-        buffer.height = Math.max(1, Math.floor(viewport.height * outputScale))
-        const bufferContext = buffer.getContext('2d')
-        if (!bufferContext) throw new Error('Canvas rendering is unavailable.')
+      const textContentPromise = page.getTextContent()
+      renderTask = page.render({
+        canvas: buffer,
+        canvasContext: bufferContext,
+        viewport,
+        transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+      })
+      await renderTask.promise
+      if (!active) return
 
-        const textContentPromise = page.getTextContent()
-        renderTask = page.render({
-          canvas: buffer,
-          canvasContext: bufferContext,
-          viewport,
-          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
-        })
-        await renderTask.promise
-        if (!active) return
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('Canvas rendering is unavailable.')
+      canvas.width = buffer.width
+      canvas.height = buffer.height
+      context.drawImage(buffer, 0, 0)
+      buffer.width = 0
+      buffer.height = 0
 
-        const context = canvas.getContext('2d')
-        if (!context || !buffer) throw new Error('Canvas rendering is unavailable.')
-        canvas.width = buffer.width
-        canvas.height = buffer.height
-        context.drawImage(buffer, 0, 0)
-        buffer.width = 0
-        buffer.height = 0
+      const textContent = await textContentPromise
+      const pdfjs = await import('pdfjs-dist')
+      if (!active) return
 
-        const textContent = await textContentPromise
-        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-        if (!active) return
+      textLayerElement.replaceChildren()
+      textLayerElement.style.width = `${Math.floor(viewport.width)}px`
+      textLayerElement.style.height = `${Math.floor(viewport.height)}px`
+      setRenderedWidth(viewport.width)
 
-        textLayerElement.replaceChildren()
-        textLayerElement.style.width = `${Math.floor(viewport.width)}px`
-        textLayerElement.style.height = `${Math.floor(viewport.height)}px`
-        setRenderedWidth(viewport.width)
-
-        textLayer = new pdfjs.TextLayer({
-          textContentSource: textContent,
-          container: textLayerElement,
-          viewport,
-        })
-        await textLayer.render()
-      } catch (renderError) {
-        if (!active) return
-        // Safari may reject oversized canvases; shrink once and retry at native scale.
-        if (outputScale > 1 && buffer) {
-          try {
-            const retryScale = 1
-            buffer.width = Math.max(1, Math.floor(viewport.width * retryScale))
-            buffer.height = Math.max(1, Math.floor(viewport.height * retryScale))
-            const retryContext = buffer.getContext('2d')
-            if (!retryContext) throw new Error('Canvas context unavailable on retry.')
-            renderTask = page.render({
-              canvas: buffer,
-              canvasContext: retryContext,
-              viewport,
-            })
-            await renderTask.promise
-            if (!active) return
-            const context = canvas.getContext('2d')
-            if (!context) throw new Error('Canvas context unavailable on retry.')
-            canvas.width = buffer.width
-            canvas.height = buffer.height
-            context.drawImage(buffer, 0, 0)
-            buffer.width = 0
-            buffer.height = 0
-
-            const textContent = await page.getTextContent()
-            const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-            if (!active) return
-
-            textLayerElement.replaceChildren()
-            textLayerElement.style.width = `${Math.floor(viewport.width)}px`
-            textLayerElement.style.height = `${Math.floor(viewport.height)}px`
-            setRenderedWidth(viewport.width)
-
-            textLayer = new pdfjs.TextLayer({
-              textContentSource: textContent,
-              container: textLayerElement,
-              viewport,
-            })
-            await textLayer.render()
-          } catch (retryError) {
-            console.error(`Failed to render PDF page ${pageNumber} (retry).`, retryError)
-            setError(true)
-          }
-        } else {
-          console.error(`Failed to render PDF page ${pageNumber}.`, renderError)
-          setError(true)
-        }
-      }
-
+      textLayer = new pdfjs.TextLayer({
+        textContentSource: textContent,
+        container: textLayerElement,
+        viewport,
+      })
+      await textLayer.render()
     })().catch((renderError: unknown) => {
       if (!active) return
       console.error(`Failed to render PDF page ${pageNumber}.`, renderError)
