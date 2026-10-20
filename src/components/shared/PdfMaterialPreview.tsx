@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist'
+import type { PDFDocumentProxy, PDFPageProxy } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import { Maximize2, X } from 'lucide-react'
 
 type Translate = (en: string, id: string) => string
@@ -194,15 +194,15 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
   // Fetches the file as an ArrayBuffer first to bypass mobile CORS and range-request restrictions.
   useEffect(() => {
     let active = true
-    let loadingTask: ReturnType<typeof import('pdfjs-dist').getDocument> | undefined
+    let loadingTask: ReturnType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').getDocument> | undefined
 
     setPdf(null)
     setHasError(false)
 
-    void import('pdfjs-dist')
+    void import('pdfjs-dist/legacy/build/pdf.mjs')
       .then((pdfjsLib) => {
         if (!active) return
-        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+        pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.legacy.min.mjs';
         return fetch(src).then((response) => {
           if (!response.ok) throw new Error(`HTTP ${response.status}`)
           return response.arrayBuffer()
@@ -462,7 +462,7 @@ function PdfPage({
 
     let active = true
     let renderTask: ReturnType<PDFPageProxy['render']> | undefined
-    let textLayer: InstanceType<typeof import('pdfjs-dist').TextLayer> | undefined
+    let textLayer: InstanceType<typeof import('pdfjs-dist/legacy/build/pdf.mjs').TextLayer> | undefined
 
     void (async () => {
       const baseViewport = page.getViewport({ scale: 1 })
@@ -498,7 +498,7 @@ function PdfPage({
       buffer.height = 0
 
       const textContent = await textContentPromise
-      const pdfjs = await import('pdfjs-dist')
+      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
       if (!active) return
 
       textLayerElement.replaceChildren()
