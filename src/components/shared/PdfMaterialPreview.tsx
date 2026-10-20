@@ -468,50 +468,108 @@ function PdfPage({
       const baseViewport = page.getViewport({ scale: 1 })
       const viewport = page.getViewport({ scale: renderWidth / baseViewport.width })
 
-      // Sharp on retina screens, but never beyond the browser's canvas budget.
-      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 2)
+      // Sharp on retina screens, but Safari has smaller canvas limits than Chrome.
+      // Cap output scale conservatively and clamp absolute dimensions so we never
+      // exceed Safari's canvas size budget.
+      const devicePixelRatio = Math.min(window.devicePixelRatio || 1, 1.5)
       const pixelBudgetScale = Math.sqrt(MAX_CANVAS_PIXELS / (viewport.width * viewport.height))
-      const outputScale = Math.min(devicePixelRatio, pixelBudgetScale)
+      let outputScale = Math.min(devicePixelRatio, pixelBudgetScale)
 
-      const buffer = document.createElement('canvas')
-      buffer.width = Math.floor(viewport.width * outputScale)
-      buffer.height = Math.floor(viewport.height * outputScale)
-      const bufferContext = buffer.getContext('2d')
-      if (!bufferContext) throw new Error('Canvas rendering is unavailable.')
+      const maxSide = 2048
+      const sideScale = Math.min(1, maxSide / Math.max(viewport.width, viewport.height))
+      outputScale = Math.min(outputScale, sideScale)
 
-      const textContentPromise = page.getTextContent()
-      renderTask = page.render({
-        canvas: buffer,
-        canvasContext: bufferContext,
-        viewport,
-        transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
-      })
-      await renderTask.promise
-      if (!active) return
+      let buffer: HTMLCanvasElement | null = null
+      try {
+        buffer = document.createElement('canvas')
+        buffer.width = Math.max(1, Math.floor(viewport.width * outputScale))
+        buffer.height = Math.max(1, Math.floor(viewport.height * outputScale))
+        const bufferContext = buffer.getContext('2d')
+        if (!bufferContext) throw new Error('Canvas rendering is unavailable.')
 
-      const context = canvas.getContext('2d')
-      if (!context) throw new Error('Canvas rendering is unavailable.')
-      canvas.width = buffer.width
-      canvas.height = buffer.height
-      context.drawImage(buffer, 0, 0)
-      buffer.width = 0
-      buffer.height = 0
+        const textContentPromise = page.getTextContent()
+        renderTask = page.render({
+          canvas: buffer,
+          canvasContext: bufferContext,
+          viewport,
+          transform: outputScale === 1 ? undefined : [outputScale, 0, 0, outputScale, 0, 0],
+        })
+        await renderTask.promise
+        if (!active) return
 
-      const textContent = await textContentPromise
-      const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-      if (!active) return
+        const context = canvas.getContext('2d')
+        if (!context || !buffer) throw new Error('Canvas rendering is unavailable.')
+        canvas.width = buffer.width
+        canvas.height = buffer.height
+        context.drawImage(buffer, 0, 0)
+        buffer.width = 0
+        buffer.height = 0
 
-      textLayerElement.replaceChildren()
-      textLayerElement.style.width = `${Math.floor(viewport.width)}px`
-      textLayerElement.style.height = `${Math.floor(viewport.height)}px`
-      setRenderedWidth(viewport.width)
+        const textContent = await textContentPromise
+        const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+        if (!active) return
 
-      textLayer = new pdfjs.TextLayer({
-        textContentSource: textContent,
-        container: textLayerElement,
-        viewport,
-      })
-      await textLayer.render()
+        textLayerElement.replaceChildren()
+        textLayerElement.style.width = `${Math.floor(viewport.width)}px`
+        textLayerElement.style.height = `${Math.floor(viewport.height)}px`
+        setRenderedWidth(viewport.width)
+
+        textLayer = new pdfjs.TextLayer({
+          textContentSource: textContent,
+          container: textLayerElement,
+          viewport,
+        })
+        await textLayer.render()
+      } catch (renderError) {
+        if (!active) return
+        // Safari may reject oversized canvases; shrink once and retry at native scale.
+        if (outputScale > 1 && buffer) {
+          try {
+            const retryScale = 1
+            buffer.width = Math.max(1, Math.floor(viewport.width * retryScale))
+            buffer.height = Math.max(1, Math.floor(viewport.height * retryScale))
+            const retryContext = buffer.getContext('2d')
+            if (!retryContext) throw new Error('Canvas context unavailable on retry.')
+            renderTask = page.render({
+              canvas: buffer,
+              canvasContext: retryContext,
+              viewport,
+            })
+            await renderTask.promise
+            if (!active) return
+            const context = canvas.getContext('2d')
+            if (!context) throw new Error('Canvas context unavailable on retry.')
+            canvas.width = buffer.width
+            canvas.height = buffer.height
+            context.drawImage(buffer, 0, 0)
+            buffer.width = 0
+            buffer.height = 0
+
+            const textContent = await page.getTextContent()
+            const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+            if (!active) return
+
+            textLayerElement.replaceChildren()
+            textLayerElement.style.width = `${Math.floor(viewport.width)}px`
+            textLayerElement.style.height = `${Math.floor(viewport.height)}px`
+            setRenderedWidth(viewport.width)
+
+            textLayer = new pdfjs.TextLayer({
+              textContentSource: textContent,
+              container: textLayerElement,
+              viewport,
+            })
+            await textLayer.render()
+          } catch (retryError) {
+            console.error(`Failed to render PDF page ${pageNumber} (retry).`, retryError)
+            setError(true)
+          }
+        } else {
+          console.error(`Failed to render PDF page ${pageNumber}.`, renderError)
+          setError(true)
+        }
+      }
+
     })().catch((renderError: unknown) => {
       if (!active) return
       console.error(`Failed to render PDF page ${pageNumber}.`, renderError)
