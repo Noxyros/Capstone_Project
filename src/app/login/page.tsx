@@ -333,9 +333,11 @@ export default function LoginPage() {
             )}
 
             {mode !== 'forgot_password' && (
-              <label className="block">
+              <div className="block">
                 <div className="mb-1.5 flex items-center justify-between">
-                  <span className="text-xs font-extrabold tracking-wide text-slate-600">{t('Password', 'Kata sandi')}</span>
+                  <label htmlFor="password" className="text-xs font-extrabold tracking-wide text-slate-600">
+                    {t('Password', 'Kata sandi')}
+                  </label>
                   {mode === 'sign_in' && (
                     <button
                       type="button"
@@ -352,6 +354,7 @@ export default function LoginPage() {
                 </div>
                 <div className="relative">
                   <input
+                    id="password"
                     type={showPassword ? 'text' : 'password'}
                     autoComplete={mode === 'sign_up' ? 'new-password' : 'current-password'}
                     required
@@ -367,14 +370,14 @@ export default function LoginPage() {
                     onClick={() => setShowPassword((visible) => !visible)}
                     aria-label={showPassword ? t('Hide password', 'Sembunyikan kata sandi') : t('Show password', 'Tampilkan kata sandi')}
                     aria-pressed={showPassword}
-                    className="absolute inset-y-0 right-3 inline-flex items-center justify-center text-slate-400 transition hover:text-slate-700 focus-visible:outline-none"
+                    className="absolute inset-y-0 right-0 inline-flex w-12 items-center justify-center text-slate-400 transition hover:text-slate-700 focus-visible:outline-none"
                   >
                     {showPassword
                       ? <EyeOff aria-hidden="true" className="h-5 w-5" />
                       : <Eye aria-hidden="true" className="h-5 w-5" />}
                   </button>
                 </div>
-              </label>
+              </div>
             )}
 
             {(error || configurationError) && (
