@@ -1264,7 +1264,7 @@ function NodePreview({ node, t }: {
         {node.type === 'lesson' ? (
           <div className="mt-4">
             {node.resourceUrl && (node.contentType === 'poster' || resourceFormat === 'image') ? (
-              <img src={node.resourceUrl} alt={node.title} className="max-h-80 w-full rounded-xl object-contain" />
+              <img src={node.resourceUrl} alt={node.title} crossOrigin="anonymous" className="max-h-80 w-full rounded-xl object-contain" />
             ) : node.contentType === 'material' && node.resourceUrl && resourceFormat === 'pdf' ? (
               <PdfMaterialPreview
                 src={node.resourceUrl}

@@ -688,6 +688,7 @@ function LessonActivity({
           <img
             src={content.src}
             alt={content.alt}
+            crossOrigin="anonymous"
             className="block w-full h-auto rounded-2xl"
           />
         )}

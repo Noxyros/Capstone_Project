@@ -191,6 +191,7 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
   const fullScreenRenderWidth = useDebouncedNumber(fullScreenPageWidth, RENDER_DEBOUNCE_MS)
 
   // Load the document + extract text. Depends on `src` only.
+  // Fetches the file as an ArrayBuffer first to bypass mobile CORS and range-request restrictions.
   useEffect(() => {
     let active = true
     let loadingTask: ReturnType<typeof import('pdfjs-dist').getDocument> | undefined
@@ -199,14 +200,17 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
     setHasError(false)
 
     void import('pdfjs-dist')
-      .then((pdfjs) => {
+      .then((pdfjsLib) => {
         if (!active) return
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-          'pdfjs-dist/build/pdf.worker.min.mjs',
-          import.meta.url,
-        ).toString()
-        loadingTask = pdfjs.getDocument({ url: src })
-        return loadingTask.promise
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
+        return fetch(src).then((response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          return response.arrayBuffer()
+        }).then((arrayBuffer) => {
+          if (!active) return
+          loadingTask = pdfjsLib.getDocument({ data: arrayBuffer })
+          return loadingTask.promise
+        })
       })
       .then((loadedPdf) => {
         if (!active || !loadedPdf) return
