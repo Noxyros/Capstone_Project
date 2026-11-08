@@ -106,16 +106,27 @@ export default function StatsPanel() {
     buyPowerUp,
     setSuperMode,
     activateHeartSurge,
+    syncHearts,
+    heartRefillAt,
   } = useUser()
   const [open, setOpen] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
   const xpBoostSecondsLeft = doubleXpUntil ? Math.max(0, Math.ceil((Date.parse(doubleXpUntil) - now) / 1000)) : 0
   const xpBoostActive = xpBoostSecondsLeft > 0
+  const heartRefillAtSeconds = heartRefillAt && hearts < maxHearts
+    ? Math.max(0, Math.ceil((Date.parse(heartRefillAt) - now) / 1000))
+    : 0
   const gemTimerAnchor = superMode && doubleGemsPausedAt ? Date.parse(doubleGemsPausedAt) : now
   const gemBoostSecondsLeft = doubleGemsUntil ? Math.max(0, Math.ceil((Date.parse(doubleGemsUntil) - gemTimerAnchor) / 1000)) : 0
   const gemBoostActive = gemBoostSecondsLeft > 0
 
   const rootRef = useRef<HTMLDivElement>(null)
+
+  const formatTimer = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`
+  }
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
@@ -126,16 +137,10 @@ export default function StatsPanel() {
   }, [])
 
   useEffect(() => {
-    if (!xpBoostActive && (!gemBoostActive || superMode)) return
+    if (!xpBoostActive && (!gemBoostActive || superMode) && heartRefillAtSeconds <= 0) return
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
-  }, [gemBoostActive, superMode, xpBoostActive])
-
-  const formatTimer = (totalSeconds: number) => {
-    const mins = Math.floor(totalSeconds / 60)
-    const secs = totalSeconds % 60
-    return `${mins}:${secs < 10 ? '0' : ''}${secs}`
-  }
+  }, [gemBoostActive, superMode, xpBoostActive, heartRefillAtSeconds])
 
   const toggle = (id: string) => setTimeout(() => setOpen((prev) => (prev === id ? null : id)), 0)
   const onStatClick = (id: string) => { if (window.innerWidth < 1024) toggle(id) }
@@ -220,12 +225,17 @@ export default function StatsPanel() {
           <div className="hidden lg:group-hover/hearts:block absolute top-full right-0 pt-2 w-80 z-50">
             <MiniCard>
               <div className="space-y-3">
-                <div className="flex items-center justify-between pb-2 border-b-2 border-slate-100">
-                  <p className="font-extrabold text-rose-500 text-base flex items-center gap-1.5">
-                    <Heart className="w-5 h-5 fill-rose-500" />
-                    {unlimitedHearts ? t('Unlimited Hearts', 'Hati Tak Terbatas') : t(`${hearts} / ${maxHearts} hearts`, `${hearts} / ${maxHearts} hati`)}
-                  </p>
-                </div>
+                  <div className="flex items-center justify-between pb-2 border-b-2 border-slate-100">
+                    <p className="font-extrabold text-rose-500 text-base flex items-center gap-1.5">
+                      <Heart className="w-5 h-5 fill-rose-500" />
+                      {unlimitedHearts ? t('Unlimited Hearts', 'Hati Tak Terbatas') : t(`${hearts} / ${maxHearts} hearts`, `${hearts} / ${maxHearts} hati`)}
+                    </p>
+                    {!unlimitedHearts && hearts < maxHearts && heartRefillAt && (
+                      <p className="text-xs font-bold text-slate-500">
+                        {t('Next heart in', 'Hati berikutnya dalam')} {formatTimer(heartRefillAtSeconds)}
+                      </p>
+                    )}
+                  </div>
 
                 {/* Super Mode Card */}
                 <div className="bg-white border-2 border-slate-200 rounded-xl p-3">
@@ -364,6 +374,11 @@ export default function StatsPanel() {
                       <Heart className="w-7 h-7 text-rose-500 fill-rose-500" />
                       {unlimitedHearts ? t('Unlimited', 'Tak Terbatas') : t('Hearts', 'Hati')}
                     </h2>
+                    {!unlimitedHearts && hearts < maxHearts && heartRefillAt && (
+                      <p className="text-xs font-bold text-slate-500">
+                        {t('Next heart in', 'Hati berikutnya dalam')} {formatTimer(heartRefillAtSeconds)}
+                      </p>
+                    )}
                     <button onClick={() => setOpen(null)} className="p-2 -mr-2 text-slate-400 active:bg-slate-100 rounded-full">
                       <X className="w-6 h-6" />
                     </button>

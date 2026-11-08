@@ -267,7 +267,7 @@ export async function POST(request: Request) {
             } else if (itemCode === 'HEART_REFILL') {
               await transaction.user.update({
                 where: { id: authentication.appUser.id },
-                data: { hearts: 5 },
+                data: { hearts: 5, heartRefillAt: null },
               })
             }
           }

@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { PowerUpType, Prisma } from '@prisma/client'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import type { GameStatePatch } from '@/src/lib/appProfile'
-import { POWER_UP_CATALOG, POWER_UP_PRICES, REWARDS, recordReward } from '@/src/lib/gameEconomy'
+import { POWER_UP_CATALOG, POWER_UP_PRICES, REWARDS, recordReward, syncHeartRegeneration, HEART_REFILL_INTERVAL_MS } from '@/src/lib/gameEconomy'
 import { prisma } from '@/src/lib/prisma'
 
 class GameActionError extends Error {
@@ -72,6 +72,30 @@ export async function PATCH(request: Request) {
         },
         { headers: { 'Cache-Control': 'no-store' } },
       )
+    } else if (body.action === 'sync_hearts') {
+      const statePatch = await prisma.$transaction(async (transaction): Promise<GameStatePatch> => {
+        const user = await transaction.user.findUnique({
+          where: { id: authentication.appUser.id },
+          select: { hearts: true, maxHearts: true, heartRefillAt: true },
+        })
+        if (!user) throw new GameActionError('Your learner account could not be found.', 404)
+        const { hearts: syncedHearts, heartRefillAt: syncedHeartRefillAt } = syncHeartRegeneration(
+          user.hearts,
+          user.maxHearts,
+          user.heartRefillAt,
+          new Date(),
+        )
+        const updated = await transaction.user.update({
+          where: { id: authentication.appUser.id },
+          data: { hearts: syncedHearts, heartRefillAt: syncedHeartRefillAt },
+          select: { hearts: true, heartRefillAt: true },
+        })
+        return {
+          hearts: updated.hearts,
+          heartRefillAt: updated.heartRefillAt?.toISOString() ?? null,
+        }
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
+      return NextResponse.json(statePatch, { headers: { 'Cache-Control': 'no-store' } })
     } else if (body.action === 'purchase') {
       if (!('code' in body) || !isPowerUpType(body.code)) {
         return NextResponse.json({ error: 'Power-up selection is invalid.' }, { status: 400 })
@@ -101,9 +125,10 @@ export async function PATCH(request: Request) {
           if (user.hearts >= user.maxHearts) throw new GameActionError('Your hearts are already full.', 409)
           await transaction.user.update({
             where: { id: authentication.appUser.id },
-            data: { hearts: user.maxHearts },
+            data: { hearts: user.maxHearts, heartRefillAt: null },
           })
           patch.hearts = user.maxHearts
+          patch.heartRefillAt = null
         } else if (code === PowerUpType.DOUBLE_XP) {
           if (user.doubleXpUntil && user.doubleXpUntil > now) {
             throw new GameActionError('A Double XP boost is already active.', 409)
@@ -144,7 +169,7 @@ export async function PATCH(request: Request) {
       const statePatch = await prisma.$transaction(async (transaction): Promise<GameStatePatch> => {
         const user = await transaction.user.findUnique({
           where: { id: authentication.appUser.id },
-          select: { hearts: true, superMode: true, doubleGemsUntil: true },
+          select: { hearts: true, maxHearts: true, superMode: true, doubleGemsUntil: true },
         })
         if (!user) throw new GameActionError('Your learner account could not be found.', 404)
         if (user.superMode) throw new GameActionError('Turn off Super Mode before trading hearts for a boost.', 409)
@@ -153,12 +178,14 @@ export async function PATCH(request: Request) {
           throw new GameActionError('A Double Gems boost is already active.', 409)
         }
         const doubleGemsUntil = new Date(Date.now() + REWARDS.sacrificeBoostMinutes * 60_000)
+        const now = new Date()
         const updated = await transaction.user.updateMany({
           where: { id: authentication.appUser.id, hearts: { gt: 4 } },
           data: {
             hearts: { decrement: 4 },
             doubleGemsUntil,
             doubleGemsPausedAt: null,
+            ...(user.hearts - 4 < user.maxHearts && { heartRefillAt: new Date(now.getTime() + HEART_REFILL_INTERVAL_MS) }),
           },
         })
         if (updated.count !== 1) throw new GameActionError('Your heart balance changed. Please try again.', 409)
@@ -166,6 +193,7 @@ export async function PATCH(request: Request) {
           hearts: user.hearts - 4,
           doubleGemsUntil: doubleGemsUntil.toISOString(),
           doubleGemsPausedAt: null,
+          heartRefillAt: new Date(now.getTime() + HEART_REFILL_INTERVAL_MS).toISOString(),
         }
       }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
       return NextResponse.json(statePatch, { headers: { 'Cache-Control': 'no-store' } })

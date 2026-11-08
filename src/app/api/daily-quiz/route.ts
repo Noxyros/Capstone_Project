@@ -30,6 +30,8 @@ class DailyQuizError extends Error {
   }
 }
 
+const MAX_TRANSACTION_ATTEMPTS = 3
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -165,6 +167,23 @@ async function generateFallbackQuestion(
 
 function isUniqueConstraintError(error: unknown): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+}
+
+async function withTransactionConflictRetry<T>(
+  operation: () => Promise<T>,
+): Promise<{ result: T; attempts: number }> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return { result: await operation(), attempts: attempt }
+    } catch (error) {
+      const isWriteConflict = error instanceof Prisma.PrismaClientKnownRequestError
+        && error.code === 'P2034'
+      if (!isWriteConflict || attempt >= MAX_TRANSACTION_ATTEMPTS) throw error
+
+      console.warn(`Daily quiz transaction conflicted; retrying (${attempt}/${MAX_TRANSACTION_ATTEMPTS - 1}).`)
+      await new Promise((resolve) => setTimeout(resolve, 50 * attempt))
+    }
+  }
 }
 
 async function getTodaysChallenge(userId: string, date: string) {
@@ -467,96 +486,98 @@ export async function POST(request: Request) {
   const questionId = body.questionId
   const optionId = body.optionId
   const userId = authentication.appUser.id
-  const date = jakartaDateKey()
+    const date = jakartaDateKey()
   try {
-    const result = await prisma.$transaction(async (transaction) => {
-      const challenge = await transaction.dailyChallenge.findFirst({
-        where: { id: challengeId, userId, date },
-        include: {
-          questions: {
-            where: { id: questionId },
-            include: { options: { select: { id: true, isCorrect: true } } },
+    const result = await withTransactionConflictRetry(async () => {
+      return await prisma.$transaction(async (transaction) => {
+        const challenge = await transaction.dailyChallenge.findFirst({
+          where: { id: challengeId, userId, date },
+          include: {
+            questions: {
+              where: { id: questionId },
+              include: { options: { select: { id: true, isCorrect: true } } },
+            },
           },
-        },
-      })
-      const question = challenge?.questions[0]
-      if (!challenge || !question) throw new Error('DAILY_CHALLENGE_UNAVAILABLE')
-      const correctOption = question.options.find((option) => option.isCorrect)
-      if (!question.options.some((option) => option.id === optionId)) {
-        throw new Error('DAILY_CHALLENGE_OPTION_INVALID')
-      }
+        })
+        const question = challenge?.questions[0]
+        if (!challenge || !question) throw new Error('DAILY_CHALLENGE_UNAVAILABLE')
+        const correctOption = question.options.find((option) => option.isCorrect)
+        if (!question.options.some((option) => option.id === optionId)) {
+          throw new Error('DAILY_CHALLENGE_OPTION_INVALID')
+        }
 
-      const previous = await transaction.dailyChallengeAnswer.findUnique({
-        where: { userId_challengeQuestionId: { userId, challengeQuestionId: question.id } },
-        select: { passed: true },
-      })
-      if (previous) {
+        const previous = await transaction.dailyChallengeAnswer.findUnique({
+          where: { userId_challengeQuestionId: { userId, challengeQuestionId: question.id } },
+          select: { passed: true },
+        })
+        if (previous) {
+          const allAnswers = await transaction.dailyChallengeAnswer.findMany({
+            where: { userId, question: { challengeId: challenge.id } },
+            select: { passed: true },
+          })
+          const complete = allAnswers.length === QUESTION_COUNT
+          const correctCount = allAnswers.filter((answer) => answer.passed).length
+          return {
+            isCorrect: previous.passed,
+            correctOptionId: correctOption?.id ?? null,
+            xpAwarded: 0,
+            xpEarned: correctCount * QUESTION_XP + (complete && correctCount === QUESTION_COUNT ? PERFECT_SCORE_BONUS : 0),
+            completed: complete,
+          }
+        }
+
+        const isCorrect = optionId === correctOption?.id
+        await transaction.dailyChallengeAnswer.create({
+          data: {
+            id: randomUUID(),
+            userId,
+            challengeQuestionId: question.id,
+            passed: isCorrect,
+          },
+        })
+        let xpAwarded = 0
+        if (isCorrect) {
+          const rewarded = await recordReward(
+            transaction,
+            userId,
+            `daily-challenge:${date}:${question.id}`,
+            QUESTION_XP,
+            0,
+          )
+          if (rewarded) xpAwarded += QUESTION_XP
+        }
         const allAnswers = await transaction.dailyChallengeAnswer.findMany({
           where: { userId, question: { challengeId: challenge.id } },
           select: { passed: true },
         })
         const complete = allAnswers.length === QUESTION_COUNT
         const correctCount = allAnswers.filter((answer) => answer.passed).length
+        if (complete && correctCount === QUESTION_COUNT) {
+          const rewarded = await recordReward(
+            transaction,
+            userId,
+            `daily-challenge-perfect:${date}:${challenge.id}`,
+            PERFECT_SCORE_BONUS,
+            0,
+          )
+          if (rewarded) xpAwarded += PERFECT_SCORE_BONUS
+        }
+        await recordActivityDay(transaction, userId)
         return {
-          isCorrect: previous.passed,
+          isCorrect,
           correctOptionId: correctOption?.id ?? null,
-          xpAwarded: 0,
+          xpAwarded,
           xpEarned: correctCount * QUESTION_XP + (complete && correctCount === QUESTION_COUNT ? PERFECT_SCORE_BONUS : 0),
           completed: complete,
         }
-      }
-
-      const isCorrect = optionId === correctOption?.id
-      await transaction.dailyChallengeAnswer.create({
-        data: {
-          id: randomUUID(),
-          userId,
-          challengeQuestionId: question.id,
-          passed: isCorrect,
-        },
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 10_000,
+        timeout: 30_000,
       })
-      let xpAwarded = 0
-      if (isCorrect) {
-        const rewarded = await recordReward(
-          transaction,
-          userId,
-          `daily-challenge:${date}:${question.id}`,
-          QUESTION_XP,
-          0,
-        )
-        if (rewarded) xpAwarded += QUESTION_XP
-      }
-      const allAnswers = await transaction.dailyChallengeAnswer.findMany({
-        where: { userId, question: { challengeId: challenge.id } },
-        select: { passed: true },
-      })
-      const complete = allAnswers.length === QUESTION_COUNT
-      const correctCount = allAnswers.filter((answer) => answer.passed).length
-      if (complete && correctCount === QUESTION_COUNT) {
-        const rewarded = await recordReward(
-          transaction,
-          userId,
-          `daily-challenge-perfect:${date}:${challenge.id}`,
-          PERFECT_SCORE_BONUS,
-          0,
-        )
-        if (rewarded) xpAwarded += PERFECT_SCORE_BONUS
-      }
-      await recordActivityDay(transaction, userId)
-      return {
-        isCorrect,
-        correctOptionId: correctOption?.id ?? null,
-        xpAwarded,
-        xpEarned: correctCount * QUESTION_XP + (complete && correctCount === QUESTION_COUNT ? PERFECT_SCORE_BONUS : 0),
-        completed: complete,
-      }
-    }, {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      maxWait: 10_000,
-      timeout: 30_000,
     })
 
-    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
+    return NextResponse.json(result.result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (error instanceof Error && error.message === 'DAILY_CHALLENGE_UNAVAILABLE') {
       return NextResponse.json({ error: 'This daily challenge is no longer available.' }, { status: 404 })

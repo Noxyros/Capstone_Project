@@ -55,6 +55,7 @@ model User {
   doubleXpUntil      DateTime?
   doubleGemsUntil    DateTime?
   doubleGemsPausedAt DateTime?
+  heartRefillAt      DateTime?
   lastActive         DateTime               @default(now())
   lastActivityDate   String?                @db.VarChar(10)
   powerUps           UserPowerUp[]

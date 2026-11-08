@@ -18,6 +18,7 @@ export interface AppProfile {
   doubleXpUntil: string | null
   doubleGemsUntil: string | null
   doubleGemsPausedAt: string | null
+  heartRefillAt: string | null
   streakFreezeCount: number
   createdAt: string
   rank: number
@@ -33,6 +34,7 @@ export interface GameStatePatch {
   doubleXpUntil?: string | null
   doubleGemsUntil?: string | null
   doubleGemsPausedAt?: string | null
+  heartRefillAt?: string | null
   streakFreezeCount?: number
 }
 
@@ -51,6 +53,7 @@ export function isGameStatePatch(value: unknown): value is GameStatePatch {
     'doubleXpUntil',
     'doubleGemsUntil',
     'doubleGemsPausedAt',
+    'heartRefillAt',
     'streakFreezeCount',
   ]
   const hasField = fields.some((field) => field in value)
@@ -61,6 +64,7 @@ export function isGameStatePatch(value: unknown): value is GameStatePatch {
     && (!('doubleXpUntil' in value) || typeof value.doubleXpUntil === 'string' || value.doubleXpUntil === null)
     && (!('doubleGemsUntil' in value) || typeof value.doubleGemsUntil === 'string' || value.doubleGemsUntil === null)
     && (!('doubleGemsPausedAt' in value) || typeof value.doubleGemsPausedAt === 'string' || value.doubleGemsPausedAt === null)
+    && (!('heartRefillAt' in value) || typeof value.heartRefillAt === 'string' || value.heartRefillAt === null)
     && (!('streakFreezeCount' in value) || typeof value.streakFreezeCount === 'number')
 }
 
@@ -91,6 +95,7 @@ export function isAppProfile(value: unknown): value is AppProfile {
     && 'doubleXpUntil' in value && (typeof value.doubleXpUntil === 'string' || value.doubleXpUntil === null)
     && 'doubleGemsUntil' in value && (typeof value.doubleGemsUntil === 'string' || value.doubleGemsUntil === null)
     && 'doubleGemsPausedAt' in value && (typeof value.doubleGemsPausedAt === 'string' || value.doubleGemsPausedAt === null)
+    && 'heartRefillAt' in value && (typeof value.heartRefillAt === 'string' || value.heartRefillAt === null)
     && 'streakFreezeCount' in value && typeof value.streakFreezeCount === 'number'
     && 'createdAt' in value && typeof value.createdAt === 'string'
     && 'rank' in value && typeof value.rank === 'number'
