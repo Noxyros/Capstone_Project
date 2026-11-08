@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client'
 import { NextResponse } from 'next/server'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import { prisma } from '@/src/lib/prisma'
+import { syncHeartRegeneration, HEART_REFILL_INTERVAL_MS } from '@/src/lib/gameEconomy'
 
 const MAX_TRANSACTION_ATTEMPTS = 3
 
@@ -48,6 +49,7 @@ type AnswerStateRow = {
   hearts: number
   maxHearts: number
   superMode: boolean
+  heartRefillAt: Date | null
   questionId: string | null
   options: Prisma.JsonValue
   savedIsCorrect: boolean | null
@@ -122,6 +124,7 @@ export async function POST(request: Request) {
             learner."hearts",
             learner."maxHearts",
             learner."superMode",
+            learner."heartRefillAt",
             question."id" AS "questionId",
             COALESCE(
               json_agg(json_build_object('id', option."id", 'isCorrect', option."isCorrect"))
@@ -151,6 +154,7 @@ export async function POST(request: Request) {
             learner."hearts",
             learner."maxHearts",
             learner."superMode",
+            learner."heartRefillAt",
             question."id",
             saved_answer."isCorrect",
             saved_answer."heartLost"
@@ -163,6 +167,12 @@ export async function POST(request: Request) {
       const validQuestionId = row.questionId
       if (!isAnswerOptions(row.options)) throw new Error('The database returned invalid quiz options.')
       const user = { hearts: row.hearts, maxHearts: row.maxHearts, superMode: row.superMode }
+      const { hearts: syncedHearts, heartRefillAt: syncedHeartRefillAt } = syncHeartRegeneration(
+        user.hearts,
+        user.maxHearts,
+        row.heartRefillAt,
+        new Date(),
+      )
       const options = row.options
       if (selectedIds.some((id) => !options.some((option) => option.id === id))) {
         throw new AnswerError('Selected answers do not belong to this question.', 400)
@@ -173,10 +183,10 @@ export async function POST(request: Request) {
           isCorrect: row.savedIsCorrect,
           heartLost: row.savedHeartLost,
           correctOptionIds,
-          user,
+          user: { ...user, hearts: syncedHearts, heartRefillAt: syncedHeartRefillAt?.toISOString() ?? null },
         }
       }
-      if (user.hearts <= 0 && !user.superMode) {
+      if (syncedHearts <= 0 && !user.superMode) {
         throw new AnswerError('You are out of hearts. Refill your hearts or activate Super Mode to continue.', 409)
       }
 
@@ -207,17 +217,29 @@ export async function POST(request: Request) {
       }
 
       if (heartLost) {
+        const now = new Date()
         const updated = await measureDatabaseOperation(databaseOperationTimings, 'heartUpdateMs', () =>
           transaction.user.updateMany({
             where: { id: authentication.appUser.id, hearts: { gt: 0 }, superMode: false },
-            data: { hearts: { decrement: 1 } },
+            data: {
+              hearts: { decrement: 1 },
+              heartRefillAt: new Date(now.getTime() + HEART_REFILL_INTERVAL_MS),
+            },
           }),
         )
         if (updated.count !== 1) throw new AnswerError('Your heart balance changed. Turn on Super Mode or refill hearts to continue.', 409)
-        user.hearts -= 1
+        user.hearts = syncedHearts - 1
       }
 
-      return { isCorrect, heartLost, correctOptionIds, user }
+      return {
+        isCorrect,
+        heartLost,
+        correctOptionIds,
+        user: {
+          ...user,
+          heartRefillAt: heartLost ? new Date(new Date().getTime() + HEART_REFILL_INTERVAL_MS).toISOString() : syncedHeartRefillAt?.toISOString() ?? null,
+        },
+      }
     }, {
       isolationLevel: Prisma.TransactionIsolationLevel.ReadCommitted,
       maxWait: 10_000,
@@ -242,6 +264,7 @@ export async function POST(request: Request) {
       hearts: answerResult.user.hearts,
       maxHearts: answerResult.user.maxHearts,
       superMode: answerResult.user.superMode,
+      heartRefillAt: (answerResult as { user: { heartRefillAt: string | null } }).user.heartRefillAt,
     }, {
       headers: {
         'Cache-Control': 'no-store',

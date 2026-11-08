@@ -369,6 +369,11 @@ html.dark .stats-panel-border {
   border-color: #26383f !important;
 }
 
+/* Dark mode hover for bordered buttons (e.g. back button) */
+html.dark .hover\:border-slate-300:hover {
+  border-color: #3b525a !important;
+}
+
 /* Profile Toasts */
 .profile-toast-success {
   background-color: #ecfdf5;

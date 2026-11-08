@@ -1,8 +1,9 @@
 'use client'
 
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react'
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { useAuth } from '@/src/context/AuthContext'
 import { isAppProfile, isGameStatePatch, type AppProfile } from '@/src/lib/appProfile'
+import { HEART_REFILL_INTERVAL_MS } from '@/src/lib/gameEconomy'
 
 export type PowerUpCode = 'HEART_REFILL' | 'DOUBLE_XP' | 'STREAK_FREEZE'
 
@@ -18,6 +19,7 @@ interface UserContextType {
   doubleXpUntil: string | null
   doubleGemsUntil: string | null
   doubleGemsPausedAt: string | null
+  heartRefillAt: string | null
   activityDates: string[]
   isMutating: boolean
   isSuperModeSaving: boolean
@@ -27,6 +29,7 @@ interface UserContextType {
   buyPowerUp: (code: PowerUpCode) => Promise<boolean>
   setSuperMode: (enabled: boolean) => Promise<boolean>
   activateHeartSurge: () => Promise<boolean>
+  syncHearts: () => Promise<boolean>
 }
 
 const UserContext = createContext<UserContextType | undefined>(undefined)
@@ -209,8 +212,10 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       hearts: currentProfile.hearts - 4,
       doubleGemsUntil: new Date(now + 7 * 60_000).toISOString(),
       doubleGemsPausedAt: null,
+      heartRefillAt: new Date(now + HEART_REFILL_INTERVAL_MS).toISOString(),
     }
   }), [runAction])
+  const syncHearts = useCallback(() => runAction('sync_hearts', {}, (currentProfile) => currentProfile), [runAction])
 
   return (
     <UserContext.Provider value={{
@@ -225,6 +230,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       doubleXpUntil: profile?.doubleXpUntil ?? null,
       doubleGemsUntil: profile?.doubleGemsUntil ?? null,
       doubleGemsPausedAt: profile?.doubleGemsPausedAt ?? null,
+      heartRefillAt: profile?.heartRefillAt ?? null,
       activityDates: profile?.activityDates ?? [],
       isMutating,
       isSuperModeSaving,
@@ -234,6 +240,7 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
       buyPowerUp,
       setSuperMode,
       activateHeartSurge,
+      syncHearts,
     }}>
       {children}
     </UserContext.Provider>

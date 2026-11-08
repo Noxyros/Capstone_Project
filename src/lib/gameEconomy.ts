@@ -13,6 +13,9 @@ export const REWARDS = {
   sacrificeBoostMinutes: 7,
 } as const
 
+export const HEART_REFILL_INTERVAL_MINUTES = 30
+export const HEART_REFILL_INTERVAL_MS = HEART_REFILL_INTERVAL_MINUTES * 60_000
+
 export const POWER_UP_PRICES: Record<PowerUpType, number> = {
   [PowerUpType.HEART_REFILL]: 250,
   [PowerUpType.DOUBLE_XP]: 100,
@@ -77,6 +80,43 @@ export function getEffectiveStreak(
   return 0
 }
 
+export interface HeartRegenerationResult {
+  hearts: number
+  heartRefillAt: Date | null
+}
+
+/**
+ * Advances +1 heart per elapsed 30-minute interval, capped at maxHearts.
+ * Starts a timer when hearts < max and none exists; clears it when full.
+ */
+export function syncHeartRegeneration(
+  hearts: number,
+  maxHearts: number,
+  heartRefillAt: Date | null,
+  now = new Date(),
+): HeartRegenerationResult {
+  if (hearts >= maxHearts) {
+    return { hearts, heartRefillAt: null }
+  }
+  if (!heartRefillAt) {
+    return { hearts, heartRefillAt: new Date(now.getTime() + HEART_REFILL_INTERVAL_MS) }
+  }
+  const elapsedMs = now.getTime() - heartRefillAt.getTime()
+  if (elapsedMs < 0) {
+    return { hearts, heartRefillAt }
+  }
+  const intervalsElapsed = Math.floor(elapsedMs / HEART_REFILL_INTERVAL_MS)
+  if (intervalsElapsed === 0) {
+    return { hearts, heartRefillAt }
+  }
+  const newHearts = Math.min(hearts + intervalsElapsed, maxHearts)
+  if (newHearts >= maxHearts) {
+    return { hearts: maxHearts, heartRefillAt: null }
+  }
+  const nextRefillAt = new Date(heartRefillAt.getTime() + intervalsElapsed * HEART_REFILL_INTERVAL_MS)
+  return { hearts: newHearts, heartRefillAt: nextRefillAt }
+}
+
 export async function getAppProfile(userId: string, timings?: OperationTimings): Promise<AppProfile | null> {
   const today = jakartaCalendarDateKey()
   const activityDate = jakartaDateKey()
@@ -104,6 +144,7 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
         doubleXpUntil: true,
         doubleGemsUntil: true,
         doubleGemsPausedAt: true,
+        heartRefillAt: true,
         createdAt: true,
         powerUps: {
           where: { powerUp: { code: PowerUpType.STREAK_FREEZE } },
@@ -152,6 +193,13 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
   if (timings) timings['profile.rankCalculationMs'] = Math.round(performance.now() - rankCalculationStartedAt)
   const streakFreezeCount = user.powerUps[0]?.quantity ?? 0
 
+  const { hearts: syncedHearts, heartRefillAt: syncedHeartRefillAt } = syncHeartRegeneration(
+    user.hearts,
+    user.maxHearts,
+    user.heartRefillAt,
+    new Date(),
+  )
+
   return {
     id: user.id,
     email: user.email,
@@ -164,12 +212,13 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
     weeklyXp,
     gems: user.gems,
     gemsEarned: earnedGemsSum._sum.gemsDelta ?? 0,
-    hearts: user.hearts,
+    hearts: syncedHearts,
     maxHearts: user.maxHearts,
     superMode: user.superMode,
     doubleXpUntil: user.doubleXpUntil?.toISOString() ?? null,
     doubleGemsUntil: user.doubleGemsUntil?.toISOString() ?? null,
     doubleGemsPausedAt: user.doubleGemsPausedAt?.toISOString() ?? null,
+    heartRefillAt: syncedHeartRefillAt?.toISOString() ?? null,
     streakFreezeCount,
     createdAt: user.createdAt.toISOString(),
     rank,
