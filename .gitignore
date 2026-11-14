@@ -36,3 +36,7 @@ yarn-error.log*
 .env.singapore
 .env*.backup
 .env.singapore*
+
+# Local-only tooling and security notes
+/.devcontainer/
+/SECURITY-REVIEW.md
