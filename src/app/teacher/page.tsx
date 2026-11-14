@@ -1682,6 +1682,7 @@ function NodePreview({ node, t }: {
                 src={node.resourceUrl}
                 title={t('PDF material preview', 'Pratinjau materi PDF')}
                 t={t}
+                showFullScreenButton={false}
               />
             ) : node.contentType === 'material' && youtubeEmbedUrl ? (
               <YouTubeEmbed

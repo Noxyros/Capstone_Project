@@ -11,6 +11,7 @@ type PdfMaterialPreviewProps = {
   title: string
   t: Translate
   onTextExtracted?: (text: string) => void
+  showFullScreenButton?: boolean
 }
 
 type ElementRef = { readonly current: HTMLDivElement | null }
@@ -163,7 +164,13 @@ function usePanZoom(
 /* Component                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMaterialPreviewProps) {
+export function PdfMaterialPreview({
+  src,
+  title,
+  t,
+  onTextExtracted,
+  showFullScreenButton = true,
+}: PdfMaterialPreviewProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fullScreenContainerRef = useRef<HTMLDivElement>(null)
 
@@ -281,7 +288,7 @@ export function PdfMaterialPreview({ src, title, t, onTextExtracted }: PdfMateri
           <span aria-live="polite" className="text-sm font-bold text-slate-700">
             {pdf ? t(`${pdf.numPages} pages`, `${pdf.numPages} halaman`) : t('Loading PDF…', 'Memuat PDF…')}
           </span>
-          {pdf && (
+          {pdf && showFullScreenButton && (
             <button
               type="button"
               onClick={openFullScreen}
