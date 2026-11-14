@@ -7,15 +7,23 @@ import { CheckCircle2, Sparkles, Zap } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
 import DailyResetCountdown from '@/src/components/widgets/DailyResetCountdown'
+import ReactMarkdown from 'react-markdown'
+import remarkMath from 'remark-math'
+import rehypeKatex from 'rehype-katex'
+import { normalizeAnswerOptionMath, normalizeMarkdownMath } from '@/src/lib/markdownMath'
+import QuestionImage from '@/src/components/shared/QuestionImage'
+import { playClickSound, playCorrectSound, playFanfareSound, playIncorrectSound } from '@/src/lib/soundEffects'
 
 type DailyChallengeQuestion = {
   id: string
   position: number
   prompt: string
+  imageUrl?: string | null
+  imageAlt?: string | null
   options: { id: string; text: string }[]
   answered: boolean
   isCorrect?: boolean
-  correctOptionId: string | null
+  correctOptionId?: string | null
 }
 
 type DailyChallenge = {
@@ -31,6 +39,7 @@ type DailyChallenge = {
 
 type DailyChallengeAnswerResult = {
   isCorrect: boolean
+  correctOptionId: string | null
   xpAwarded: number
   xpEarned: number
   completed: boolean
@@ -40,6 +49,8 @@ function isDailyChallengeAnswerResult(value: unknown): value is DailyChallengeAn
   return typeof value === 'object'
     && value !== null
     && 'isCorrect' in value && typeof value.isCorrect === 'boolean'
+    && 'correctOptionId' in value
+    && (value.correctOptionId === null || typeof value.correctOptionId === 'string')
     && 'xpAwarded' in value && typeof value.xpAwarded === 'number'
     && 'xpEarned' in value && typeof value.xpEarned === 'number'
     && 'completed' in value && typeof value.completed === 'boolean'
@@ -51,6 +62,8 @@ function isDailyChallengeQuestion(value: unknown): value is DailyChallengeQuesti
     && 'id' in value && typeof value.id === 'string'
     && 'position' in value && typeof value.position === 'number'
     && 'prompt' in value && typeof value.prompt === 'string'
+    && (!('imageUrl' in value) || value.imageUrl === null || typeof value.imageUrl === 'string')
+    && (!('imageAlt' in value) || value.imageAlt === null || typeof value.imageAlt === 'string')
     && 'options' in value && Array.isArray(value.options)
     && value.options.length === 4
     && value.options.every((option) =>
@@ -60,8 +73,9 @@ function isDailyChallengeQuestion(value: unknown): value is DailyChallengeQuesti
       && 'text' in option && typeof option.text === 'string')
     && 'answered' in value && typeof value.answered === 'boolean'
     && (!('isCorrect' in value) || typeof value.isCorrect === 'boolean')
-    && 'correctOptionId' in value
-    && (value.correctOptionId === null || typeof value.correctOptionId === 'string')
+    && (!('correctOptionId' in value)
+      || value.correctOptionId === null
+      || typeof value.correctOptionId === 'string')
 }
 
 function isDailyChallenge(value: unknown): value is DailyChallenge {
@@ -95,7 +109,14 @@ function getCachedChallenge(userId: string, date: string): DailyChallenge | null
       || !('challenge' in parsed)
       || !isDailyChallenge(parsed.challenge)
     ) return null
-    return parsed.challenge
+    const challenge = {
+      ...parsed.challenge,
+      questions: parsed.challenge.questions.map((question) => question.answered
+        ? question
+        : { ...question, correctOptionId: null }),
+    }
+    cacheChallenge(userId, date, challenge)
+    return challenge
   } catch (error) {
     console.warn('Could not restore the daily challenge from this browser tab.', error)
     return null
@@ -129,6 +150,7 @@ export default function DailyQuizWidget({
   const [isOpen, setIsOpen] = useState(false)
   const [questionIndex, setQuestionIndex] = useState(0)
   const [selectedOption, setSelectedOption] = useState<string | null>(null)
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState('')
   const savedAnswerIds = useRef(new Set<string>())
@@ -139,30 +161,42 @@ export default function DailyQuizWidget({
     profileRef.current = profile
   }, [profile])
 
+  useEffect(() => {
+    if (!isOpen) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = previousOverflow
+    }
+  }, [isOpen])
+
   useLayoutEffect(() => {
     const cached = profile?.id ? getCachedChallenge(profile.id, dailyResetDate) : null
     challengeRef.current = cached
     setChallenge(cached)
-    setIsLoading(!cached)
+    setIsLoading(true)
     setError('')
+    setIsSubmittingAnswer(false)
     if (cached) {
       const nextQuestion = cached.questions.findIndex((question) => !question.answered)
       setQuestionIndex(nextQuestion >= 0 ? nextQuestion : cached.questions.length - 1)
       setSelectedOption(null)
+      setIsSubmittingAnswer(false)
       savedAnswerIds.current = new Set(
         cached.questions.filter((question) => question.answered).map((question) => question.id),
       )
     } else {
       setQuestionIndex(0)
       setSelectedOption(null)
+      setIsSubmittingAnswer(false)
       savedAnswerIds.current.clear()
     }
   }, [dailyResetDate, profile?.id])
 
   const loadChallenge = useCallback(async () => {
-    if (challengeLoadInFlight.current) return
+    if (challengeLoadInFlight.current) return false
     challengeLoadInFlight.current = true
-    if (!challengeRef.current) setIsLoading(true)
+    setIsLoading(true)
     setError('')
     try {
       const response = await fetch('/api/daily-quiz', { cache: 'no-store' })
@@ -194,9 +228,11 @@ export default function DailyQuizWidget({
           .filter((question) => question.answered)
           .map((question) => question.id),
       )
+      return true
     } catch (loadError) {
       console.error('Failed to load the daily challenge.', loadError)
       setError(loadError instanceof Error ? loadError.message : t('Could not load today’s challenge.', 'Tidak dapat memuat tantangan hari ini.'))
+      return false
     } finally {
       challengeLoadInFlight.current = false
       setIsLoading(false)
@@ -204,44 +240,17 @@ export default function DailyQuizWidget({
   }, [dailyResetDate, t])
 
   useEffect(() => {
-    if (challengeRef.current || challengeLoadInFlight.current) return
     void loadChallenge()
   }, [dailyResetDate, loadChallenge, profile?.id])
 
   const currentQuestion = challenge?.questions[questionIndex]
 
   const submitAnswer = (optionId: string) => {
-    if (!challenge || !currentQuestion || currentQuestion.answered || savedAnswerIds.current.has(currentQuestion.id)) return
-    const correctOptionId = currentQuestion.correctOptionId
-    if (!correctOptionId) {
-      setError(t('This question is missing its answer key. Reload the challenge and try again.', 'Soal ini tidak memiliki kunci jawaban. Muat ulang tantangan lalu coba lagi.'))
-      return
-    }
-
+    if (!challenge || !currentQuestion || currentQuestion.answered || isSubmittingAnswer || savedAnswerIds.current.has(currentQuestion.id)) return
     savedAnswerIds.current.add(currentQuestion.id)
-    const isCorrect = optionId === correctOptionId
-    const updatedQuestions = challenge.questions.map((question) => question.id === currentQuestion.id
-      ? { ...question, answered: true, isCorrect }
-      : question)
-    const answeredQuestions = updatedQuestions.filter((question) => question.answered)
-    const correctCount = answeredQuestions.filter((question) => question.isCorrect).length
-    const completed = answeredQuestions.length === challenge.questionCount
-    const xpEarned = correctCount * challenge.questionXp
-      + (completed && correctCount === challenge.questionCount ? challenge.perfectScoreBonus : 0)
-
     setSelectedOption(optionId)
+    setIsSubmittingAnswer(true)
     setError('')
-    const updatedChallenge = {
-      ...challenge,
-      xpEarned,
-      completed,
-      questions: updatedQuestions,
-    }
-    challengeRef.current = updatedChallenge
-    setChallenge(updatedChallenge)
-    if (profileRef.current?.id) {
-      cacheChallenge(profileRef.current.id, dailyResetDate, updatedChallenge)
-    }
 
     answerSaveQueue.current = answerSaveQueue.current.then(async () => {
       let lastError: Error | null = null
@@ -262,24 +271,39 @@ export default function DailyQuizWidget({
           if (!isDailyChallengeAnswerResult(result)) {
             throw new Error(t('The server returned invalid answer data.', 'Server mengirim data jawaban yang tidak valid.'))
           }
-          if (result.isCorrect !== isCorrect) {
-            console.error('The locally cached daily challenge answer did not match server validation.')
-            void loadChallenge()
+          const currentChallenge = challengeRef.current
+          if (!currentChallenge) {
+            setIsSubmittingAnswer(false)
             return
           }
-          setChallenge((current) => {
-            if (!current) return current
-            const serverUpdatedChallenge = {
-              ...current,
-              xpEarned: result.xpEarned,
-              completed: result.completed,
-            }
-            challengeRef.current = serverUpdatedChallenge
-            if (profileRef.current?.id) {
-              cacheChallenge(profileRef.current.id, dailyResetDate, serverUpdatedChallenge)
-            }
-            return serverUpdatedChallenge
-          })
+          const updatedChallenge = {
+            ...currentChallenge,
+            xpEarned: result.xpEarned,
+            completed: result.completed,
+            questions: currentChallenge.questions.map((question) => question.id === currentQuestion.id
+              ? {
+                  ...question,
+                  answered: true,
+                  isCorrect: result.isCorrect,
+                  correctOptionId: result.correctOptionId,
+                }
+              : question),
+          }
+          challengeRef.current = updatedChallenge
+          setChallenge(updatedChallenge)
+          setSelectedOption(optionId)
+          setIsSubmittingAnswer(false)
+          setError('')
+          if (profileRef.current?.id) {
+            cacheChallenge(profileRef.current.id, dailyResetDate, updatedChallenge)
+          }
+          if (result.completed) {
+            playFanfareSound()
+          } else if (result.isCorrect) {
+            playCorrectSound()
+          } else {
+            playIncorrectSound()
+          }
           const latestProfile = profileRef.current
           if (latestProfile && result.xpAwarded > 0) {
             const nextProfile = {
@@ -297,9 +321,13 @@ export default function DailyQuizWidget({
         }
       }
       console.error('Failed to save the daily challenge answer after retries.', lastError)
+      savedAnswerIds.current.delete(currentQuestion.id)
+      setSelectedOption(null)
+      setIsSubmittingAnswer(false)
+      setIsOpen(false)
       setError(t(
-        'Your answer was graded, but could not be saved. Keep this page open and try again.',
-        'Jawaban sudah dinilai, tetapi belum tersimpan. Biarkan halaman ini terbuka dan coba lagi.',
+        'Your answer could not be confirmed or saved. Keep this page open and try again.',
+        'Jawabanmu belum bisa dipastikan atau disimpan. Biarkan halaman ini terbuka dan coba lagi.',
       ))
     })
   }
@@ -342,7 +370,7 @@ export default function DailyQuizWidget({
           <button
             type="button"
             onClick={() => void loadChallenge()}
-            className="shrink-0 self-start rounded-2xl bg-white px-5 py-2.5 text-sm font-extrabold text-orange-600 shadow-sm sm:self-auto"
+            className="w-full shrink-0 self-stretch rounded-2xl bg-white px-5 py-2.5 text-sm font-extrabold text-orange-600 shadow-sm sm:w-auto sm:self-auto"
           >
             {t('Try again', 'Coba lagi')}
           </button>
@@ -352,8 +380,11 @@ export default function DailyQuizWidget({
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             disabled={isLoading || !challenge}
-            onClick={() => setIsOpen(true)}
-            className="daily-quiz-play shrink-0 self-start rounded-2xl border-b-2 bg-white px-5 py-2.5 text-sm font-extrabold text-orange-600 shadow-sm disabled:cursor-wait disabled:opacity-70 sm:self-auto"
+            onClick={async () => {
+              playClickSound()
+              if (await loadChallenge()) setIsOpen(true)
+            }}
+            className="daily-quiz-play w-full shrink-0 self-stretch rounded-2xl border-b-2 bg-white px-5 py-2.5 text-sm font-extrabold text-orange-600 shadow-sm disabled:cursor-wait disabled:opacity-70 sm:w-auto sm:self-auto"
           >
             {t('Play Challenge', 'Mainkan Tantangan')}
           </motion.button>
@@ -362,7 +393,7 @@ export default function DailyQuizWidget({
 
       {isOpen && challenge && currentQuestion && typeof document !== 'undefined' && createPortal(
         <AnimatePresence>
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 p-4 backdrop-blur-sm">
+          <div className="fixed inset-0 z-50 flex items-center justify-center overflow-hidden overscroll-none bg-slate-900/60 p-3 backdrop-blur-sm sm:p-4">
             <motion.div
               role="dialog"
               aria-modal="true"
@@ -370,17 +401,25 @@ export default function DailyQuizWidget({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-lg rounded-3xl border-4 border-slate-100 bg-white p-6 text-slate-700 shadow-2xl"
+              className="relative flex max-h-[calc(100dvh-1.5rem)] w-full max-w-lg flex-col overflow-hidden rounded-3xl border-4 border-slate-100 bg-white text-slate-700 shadow-2xl sm:max-h-[calc(100dvh-2rem)]"
             >
-              <div className="mb-4 flex items-center justify-between">
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-100 px-5 pb-3 pt-4 sm:px-6">
                 <span className="flex items-center gap-1 text-sm font-extrabold text-amber-500">
                   <Sparkles className="h-4 w-4" /> {t('Daily Challenge', 'Tantangan Harian')}
                 </span>
-                <button type="button" onClick={() => setIsOpen(false)} className="text-sm font-bold text-slate-400 hover:text-slate-600">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playClickSound()
+                    setIsOpen(false)
+                  }}
+                  className="text-sm font-bold text-slate-400 hover:text-slate-600"
+                >
                   {t('Close', 'Tutup')}
                 </button>
               </div>
 
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6">
               <div className="mb-5">
                 <div className="mb-2 flex items-center justify-between text-xs font-extrabold text-slate-500">
                   <span>{t(`Question ${questionIndex + 1} of ${challenge.questionCount}`, `Soal ${questionIndex + 1} dari ${challenge.questionCount}`)}</span>
@@ -395,7 +434,12 @@ export default function DailyQuizWidget({
                 </div>
               </div>
 
-              <h2 id="daily-challenge-prompt" className="mb-2 text-xl font-extrabold text-slate-700">{currentQuestion.prompt}</h2>
+              <QuestionImage src={currentQuestion.imageUrl} alt={currentQuestion.imageAlt} />
+              <div id="daily-challenge-prompt" className="curriculum-markdown curriculum-markdown-compact mb-2 text-xl font-extrabold text-slate-700">
+                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {normalizeMarkdownMath(currentQuestion.prompt)}
+                </ReactMarkdown>
+              </div>
               <p className="mb-4 text-xs font-semibold text-slate-400">
                 {t(`+${challenge.questionXp} XP for each correct answer · +${challenge.perfectScoreBonus} XP for a perfect score`,
                   `+${challenge.questionXp} XP untuk setiap jawaban benar · +${challenge.perfectScoreBonus} XP untuk nilai sempurna`)}
@@ -409,23 +453,39 @@ export default function DailyQuizWidget({
                     optionStyle = 'border-emerald-500 bg-emerald-50 text-emerald-700'
                   } else if (isSelected && currentIsCorrect === false) {
                     optionStyle = 'border-rose-500 bg-rose-50 text-rose-700'
+                  } else if (isSelected && isSubmittingAnswer) {
+                    optionStyle = 'border-amber-400 bg-amber-50 text-amber-900'
                   }
                   return (
                     <button
                       key={option.id}
                       type="button"
-                      disabled={currentQuestion.answered}
+                      disabled={currentQuestion.answered || isSubmittingAnswer}
                       onClick={() => void submitAnswer(option.id)}
                       className={`w-full rounded-2xl border-2 border-b-4 p-4 text-left font-bold transition-all disabled:cursor-default ${optionStyle}`}
                     >
-                      {option.text}
+                      <div className="curriculum-markdown curriculum-markdown-compact">
+                        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+                          {normalizeAnswerOptionMath(option.text)}
+                        </ReactMarkdown>
+                      </div>
                     </button>
                   )
                 })}
               </div>
+              {isSubmittingAnswer && (
+                <p role="status" className="mb-4 text-center text-sm font-bold text-amber-700">
+                  {t('Checking your answer…', 'Memeriksa jawaban…')}
+                </p>
+              )}
+              </div>
 
               {currentQuestion.answered && (
-                <motion.div initial={{ y: 10, opacity: 0 }} animate={{ y: 0, opacity: 1 }}>
+                <motion.div
+                  initial={{ y: 10, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  className="shrink-0 border-t border-slate-100 bg-white px-5 pb-5 pt-4 sm:px-6"
+                >
                   {completed ? (
                     <div className="mb-4 flex items-center gap-2 rounded-2xl bg-emerald-100 p-4 font-bold text-emerald-800">
                       <CheckCircle2 className="h-5 w-5 shrink-0" />
@@ -447,6 +507,7 @@ export default function DailyQuizWidget({
                     <button
                       type="button"
                       onClick={() => {
+                        playClickSound()
                         setQuestionIndex((index) => index + 1)
                         setSelectedOption(null)
                       }}
@@ -455,7 +516,14 @@ export default function DailyQuizWidget({
                       {t('Next question', 'Soal berikutnya')}
                     </button>
                   ) : completed ? (
-                    <button type="button" onClick={() => setIsOpen(false)} className="w-full rounded-2xl bg-slate-800 py-3 font-extrabold text-white">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        playClickSound()
+                        setIsOpen(false)
+                      }}
+                      className="w-full rounded-2xl bg-slate-800 py-3 font-extrabold text-white"
+                    >
                       {t('Done', 'Selesai')}
                     </button>
                   ) : null}

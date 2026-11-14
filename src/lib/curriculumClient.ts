@@ -58,6 +58,7 @@ function isCurriculumSubjects(value: unknown): value is CurriculumSubject[] {
     && 'name' in subject && typeof subject.name === 'string'
     && 'chapters' in subject
     && Array.isArray(subject.chapters)
+    && 'isPublished' in subject && typeof subject.isPublished === 'boolean'
     && subject.chapters.every((chapter: unknown) =>
       typeof chapter === 'object'
       && chapter !== null
@@ -131,21 +132,23 @@ function requestCurriculum(view: 'teacher' | undefined, scope: string, key: stri
     const completedNodeIds = new Set(existing?.flatMap((subject) =>
       subject.chapters.flatMap((chapter) =>
         chapter.nodes.filter((node) => node.status === 'completed').map((node) => node.id))) ?? [])
-    const subjects = result.subjects.map((subject) => ({
-      ...subject,
-      chapters: subject.chapters.map((chapter) => {
-        const nodes = chapter.nodes.map((node) => completedNodeIds.has(node.id)
-          ? { ...node, status: 'completed' as const }
-          : node)
-        return {
-          ...chapter,
-          nodes,
-          chaptersStatus: nodes.length > 0 && nodes.every((node) => node.status === 'completed')
-            ? 'completed' as const
-            : chapter.chaptersStatus === 'completed' ? 'in_progress' as const : chapter.chaptersStatus,
-        }
-      }),
-    }))
+    const subjects = result.subjects.map((subject) => {
+      const subjectOpen = subject.isPublished
+      return {
+        ...subject,
+        chapters: subject.chapters.map((chapter) => {
+          const nodes = chapter.nodes.map((node) => completedNodeIds.has(node.id)
+            ? { ...node, status: 'completed' as const }
+            : node)
+          const chapterOpen = subjectOpen && chapter.chaptersStatus === 'in_progress'
+          return {
+            ...chapter,
+            nodes,
+            chaptersStatus: chapterOpen ? 'in_progress' as const : 'locked' as const,
+          }
+        }),
+      }
+    })
     const fetchedAt = Date.now()
     curriculumCache.set(key, { subjects, fetchedAt })
     try {
@@ -213,14 +216,26 @@ export function invalidateCurriculumCache(scope?: string): void {
   }
 }
 
-export async function saveCurriculum(subjects: CurriculumSubject[]): Promise<void> {
+export async function saveCurriculum(subjects: CurriculumSubject[]): Promise<{ cleanupWarning: boolean }> {
   const response = await fetch('/api/curriculum', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subjects }),
   })
   if (!response.ok) throw new Error(await readError(response, 'Could not save curriculum.'))
+  const result: unknown = await response.json()
+  if (
+    typeof result !== 'object'
+    || result === null
+    || !('saved' in result)
+    || result.saved !== true
+    || ('cleanupWarning' in result && typeof result.cleanupWarning !== 'boolean')
+  ) {
+    throw new Error('The server returned invalid curriculum save data.')
+  }
+  const cleanupWarning = 'cleanupWarning' in result && result.cleanupWarning === true
   notifyCurriculumChanged()
+  return { cleanupWarning }
 }
 
 /**
@@ -281,9 +296,7 @@ export function markNodeCompletedLocally(userId: string, nodeId: string): void {
         changed = true
         return { ...node, status: 'completed' as const }
       })
-      const chaptersStatus = nodes.length > 0 && nodes.every((node) => node.status === 'completed')
-        ? 'completed' as const
-        : chapter.chaptersStatus === 'completed' ? 'in_progress' as const : chapter.chaptersStatus
+      const chaptersStatus = chapter.chaptersStatus
       return { ...chapter, nodes, chaptersStatus }
     }),
   }))

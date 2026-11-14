@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Lock } from 'lucide-react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import Roadmap from '@/src/components/shared/Roadmap'
@@ -50,8 +50,11 @@ export default function SubmoduleRoadmapPage() {
   const chapter: CurriculumChapter | undefined = subjects
     .flatMap((subject) => subject.chapters)
     .find((item) => item.id === chapterId)
+  const parentSubject = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))
+  const subjectOpen = Boolean(parentSubject?.isPublished)
   const submodule = chapter?.submodules.find((item) => item.id === submoduleId)
   const nodes = chapter?.nodes.filter((node) => node.submoduleId === submoduleId) ?? []
+  const locked = !subjectOpen || !submodule?.isPublished || chapter?.chaptersStatus === 'locked'
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-24">
@@ -78,6 +81,11 @@ export default function SubmoduleRoadmapPage() {
           <p role="status" className="py-10 text-center font-bold text-slate-500">
             {t('Loading your learning path…', 'Memuat peta belajarmu…')}
           </p>
+        ) : locked ? (
+          <div className="rounded-2xl border-2 border-slate-200 bg-white p-6 text-center">
+            <Lock className="mx-auto h-7 w-7 text-slate-400 mb-3" />
+            <p className="text-sm font-bold text-slate-500">{t('This submodule is unavailable.', 'Submodul ini tidak tersedia.')}</p>
+          </div>
         ) : nodes.length ? (
           <Roadmap nodes={nodes} chapterId={chapterId} />
         ) : (

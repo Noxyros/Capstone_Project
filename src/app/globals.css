@@ -55,6 +55,33 @@
   animation: tutor-typing 900ms ease-in-out infinite;
 }
 
+.tutor-markdown table {
+  min-width: max-content;
+  border-collapse: collapse;
+}
+
+.tutor-markdown th,
+.tutor-markdown td {
+  border: 1px solid #cbd5e1;
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.tutor-markdown th {
+  background-color: #e2e8f0;
+  font-weight: 800;
+}
+
+html.dark .tutor-markdown th,
+html.dark .tutor-markdown td {
+  border-color: #52666d;
+}
+
+html.dark .tutor-markdown th {
+  background-color: #25363d;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .tutor-message-enter,
   .tutor-typing-dot {
@@ -63,6 +90,7 @@
 }
 
 html {
+  scrollbar-gutter: stable;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
@@ -461,8 +489,20 @@ html.dark .border-indigo-200 {
   border-color: #35447a !important;
 }
 
+html.dark .border-emerald-100 {
+  border-color: #286057 !important;
+}
+
+html.dark .bank-submodule-action:focus-visible {
+  --tw-ring-offset-color: #193b38;
+}
+
 html.dark .border-emerald-200 {
   border-color: #286057 !important;
+}
+
+html.dark .hover\:border-emerald-200:hover {
+  border-color: #3a7a6e !important;
 }
 
 html.dark .border-amber-100 {
@@ -587,4 +627,174 @@ html.dark .bg-gradient-to-b.from-slate-50\/50 {
 html.dark .divide-slate-100 > :not(:last-child),
 html.dark .border-slate-100 {
   border-color: #26383f !important;
+}
+
+.curriculum-markdown {
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+
+.curriculum-markdown > :first-child {
+  margin-top: 0;
+}
+
+.curriculum-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.curriculum-markdown h1,
+.curriculum-markdown h2,
+.curriculum-markdown h3 {
+  margin-block: 1.1em 0.45em;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.curriculum-markdown h1 {
+  font-size: 1.5em;
+}
+
+.curriculum-markdown h2 {
+  font-size: 1.25em;
+}
+
+.curriculum-markdown h3 {
+  font-size: 1.1em;
+}
+
+.curriculum-markdown p {
+  margin-block: 0.65em;
+}
+
+.curriculum-markdown table {
+  width: 100%;
+  margin-block: 0.9em;
+  border-collapse: collapse;
+}
+
+.curriculum-markdown th,
+.curriculum-markdown td {
+  border: 1px solid #cbd5e1;
+  padding: 0.45rem 0.65rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.curriculum-markdown th {
+  background-color: #f1f5f9;
+  font-weight: 800;
+}
+
+.curriculum-markdown-compact p {
+  margin-block: 0;
+}
+
+.curriculum-markdown strong {
+  font-weight: 800;
+}
+
+.curriculum-markdown em {
+  font-style: italic;
+}
+
+.curriculum-markdown a {
+  color: #4f46e5;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.curriculum-markdown ul,
+.curriculum-markdown ol {
+  margin-block: 0.65em;
+  padding-left: 1.5em;
+}
+
+.curriculum-markdown ul {
+  list-style: disc;
+}
+
+.curriculum-markdown ol {
+  list-style: decimal;
+}
+
+.curriculum-markdown li + li {
+  margin-top: 0.25em;
+}
+
+.curriculum-markdown blockquote {
+  margin-block: 0.9em;
+  border-left: 3px solid #cbd5e1;
+  padding-left: 0.9em;
+  color: #64748b;
+}
+
+.curriculum-markdown code {
+  border-radius: 0.25rem;
+  background-color: #f1f5f9;
+  padding: 0.1em 0.3em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+}
+
+.curriculum-markdown pre {
+  overflow-x: auto;
+  margin-block: 0.9em;
+  border-radius: 0.75rem;
+  background-color: #0f172a;
+  padding: 1rem;
+  color: #e2e8f0;
+}
+
+.curriculum-markdown pre code {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+  font-size: 0.85em;
+}
+
+.curriculum-markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.2em;
+}
+
+.curriculum-markdown hr {
+  margin-block: 1.25em;
+  border-color: #cbd5e1;
+}
+
+html.dark .curriculum-markdown blockquote {
+  border-color: #52666d;
+  color: #a7bbc0;
+}
+
+html.dark .curriculum-markdown th,
+html.dark .curriculum-markdown td {
+  border-color: #52666d;
+}
+
+html.dark .curriculum-markdown th {
+  background-color: #25363d;
+}
+
+html.dark .curriculum-markdown code {
+  background-color: #25363d;
+  color: #e2e8f0;
+}
+
+html.dark .curriculum-markdown pre {
+  background-color: #0b1418;
+  color: #e2e8f0;
+}
+
+html.dark .curriculum-markdown pre code {
+  background-color: transparent;
+}
+
+html.dark .curriculum-markdown a {
+  color: #a5b4fc;
+}
+
+html.dark .curriculum-markdown hr {
+  border-color: #3b525a;
 }

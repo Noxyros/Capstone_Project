@@ -1,8 +1,62 @@
 import { NextResponse } from 'next/server'
 import { Prisma, RoadmapContentType, RoadmapNodeType, RoadmapRewardCurrency, Role } from '@prisma/client'
+import { createClient } from '@supabase/supabase-js'
 import { authenticateAppUser } from '@/src/lib/auth/server'
 import { prisma } from '@/src/lib/prisma'
 import { VALID_SUBJECT_COLORS, type CurriculumSubject, type SubjectColor } from '@/src/lib/teacherContent'
+
+const LESSON_MATERIALS_BUCKET = 'lesson-materials'
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const UPLOADED_FILENAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(pdf|ppt|pptx|jpe?g|png|webp|gif|avif)$/i
+const QUESTION_IMAGE_FILENAME_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(jpe?g|png|webp|gif|avif)$/i
+
+function getLessonMaterialObjectPath(resourceUrl: string, supabaseUrl: string): string | null {
+  try {
+    const url = new URL(resourceUrl)
+    if (url.origin !== new URL(supabaseUrl).origin) return null
+
+    const prefix = `/storage/v1/object/public/${LESSON_MATERIALS_BUCKET}/`
+    if (!url.pathname.startsWith(prefix)) return null
+
+    const objectPath = decodeURIComponent(url.pathname.slice(prefix.length))
+    const [ownerId, filename, ...extraSegments] = objectPath.split('/')
+    if (
+      extraSegments.length > 0
+      || !UUID_PATTERN.test(ownerId ?? '')
+      || !UPLOADED_FILENAME_PATTERN.test(filename ?? '')
+    ) return null
+
+    return objectPath
+  } catch {
+    return null
+  }
+}
+
+function isUploadedQuestionImage(imageUrl: string): boolean {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!supabaseUrl) return false
+  const objectPath = getLessonMaterialObjectPath(imageUrl, supabaseUrl)
+  return objectPath !== null && QUESTION_IMAGE_FILENAME_PATTERN.test(objectPath.split('/').at(-1) ?? '')
+}
+
+async function removeUnreferencedLessonMaterials(
+  resourceUrls: string[],
+  supabaseUrl: string,
+  serviceRoleKey: string,
+): Promise<void> {
+  const paths = [...new Set(resourceUrls
+    .map((resourceUrl) => getLessonMaterialObjectPath(resourceUrl, supabaseUrl))
+    .filter((path): path is string => path !== null))]
+  if (paths.length === 0) return
+
+  const supabase = createClient(supabaseUrl, serviceRoleKey)
+  for (let index = 0; index < paths.length; index += 100) {
+    const { error } = await supabase.storage
+      .from(LESSON_MATERIALS_BUCKET)
+      .remove(paths.slice(index, index + 100))
+    if (error) throw error
+  }
+}
 
 function curriculumInclude(userId: string, teacherView: boolean) {
   return {
@@ -50,6 +104,7 @@ function toCurriculumSubject(
     color: (VALID_SUBJECT_COLORS.includes(subject.color as SubjectColor)
       ? subject.color
       : 'blue') as CurriculumSubject['color'],
+    isPublished: subject.isPublished,
     chapters: subject.chapters.map((chapter) => {
       const nodes = chapter.nodes.map((node) => ({
         id: node.id,
@@ -77,6 +132,8 @@ function toCurriculumSubject(
         questions: node.questions.map((question) => ({
           id: question.id,
           prompt: question.prompt,
+          imageUrl: question.imageUrl,
+          imageAlt: question.imageAlt,
           allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
           options: question.options.map((option) => ({
             id: option.id,
@@ -100,7 +157,7 @@ function toCurriculumSubject(
         })),
 chaptersStatus: teacherView
           ? chapter.isPublished ? 'in_progress' as const : 'locked' as const
-          : chapter.isPublished && nodes.length > 0 && nodes.every((node) => node.status === 'completed') ? 'completed' as const : 'in_progress' as const,
+          : chapter.isPublished ? 'in_progress' as const : 'locked' as const,
         nodes,
       }
     }),
@@ -131,6 +188,9 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
     if (!VALID_SUBJECT_COLORS.includes(subject.color as SubjectColor)) {
       return { error: `${subjectPath}.color is not supported.` }
     }
+    if (typeof subject.isPublished !== 'boolean') {
+      return { error: `${subjectPath}.isPublished must be a boolean.` }
+    }
     if (!Array.isArray(subject.chapters)) return { error: `${subjectPath}.chapters must be an array.` }
     if (subject.chapters.length > 100) return { error: `${subjectPath}.chapters exceeds the 100-item limit.` }
 
@@ -141,7 +201,7 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
       if (!isString(chapter.title, 160, false)) return { error: `${chapterPath}.title must be a non-empty string (max 160 characters).` }
       if (!Number.isInteger(chapter.order) || (chapter.order as number) < 1) return { error: `${chapterPath}.order must be a positive integer.` }
       if (!isString(chapter.summary, 4_000)) return { error: `${chapterPath}.summary must be a string (max 4,000 characters).` }
-      if (!['completed', 'in_progress', 'locked'].includes(chapter.chaptersStatus as string)) {
+      if (!['in_progress', 'locked'].includes(chapter.chaptersStatus as string)) {
         return { error: `${chapterPath}.chaptersStatus is not supported.` }
       }
       if (!Array.isArray(chapter.submodules)) return { error: `${chapterPath}.submodules must be an array.` }
@@ -210,6 +270,17 @@ function validateCurriculum(value: unknown): { subjects: CurriculumSubject[] } |
           if (!isRecord(question)) return { error: `${questionPath} must be an object.` }
           if (!isString(question.id, 200, false)) return { error: `${questionPath}.id must be a non-empty string (max 200 characters).` }
           if (!isString(question.prompt, 2_000, false)) return { error: `${questionPath}.prompt must be a non-empty string (max 2,000 characters).` }
+          if (question.imageUrl !== undefined && question.imageUrl !== null) {
+            if (!isString(question.imageUrl, 2_000, false) || !isUploadedQuestionImage(question.imageUrl)) {
+              return { error: `${questionPath}.imageUrl must be an image uploaded to the lesson materials bucket.` }
+            }
+          }
+          if (question.imageAlt !== undefined && question.imageAlt !== null && !isString(question.imageAlt, 500, false)) {
+            return { error: `${questionPath}.imageAlt must be a non-empty string (max 500 characters).` }
+          }
+          if (typeof question.imageUrl === 'string' && !isString(question.imageAlt, 500, false)) {
+            return { error: `${questionPath}.imageAlt is required when an image is attached.` }
+          }
           if (!Array.isArray(question.options)) return { error: `${questionPath}.options must be an array.` }
           if (question.options.length < 4 || question.options.length > 5) return { error: `${questionPath}.options must contain 4 or 5 options.` }
           for (const [optionIndex, option] of question.options.entries()) {
@@ -243,6 +314,7 @@ export async function GET(request: Request) {
   const subjectWhere: Prisma.SubjectWhereInput = teacherView
     ? {}
     : {
+      isPublished: true,
       grade: { level: { gte: 1, lte: 12 } },
       chapters: { some: { isPublished: true, nodes: { some: { isPublished: true } } } },
     }
@@ -306,6 +378,29 @@ export async function PUT(request: Request) {
   }
 
   try {
+    let cleanupWarning = false
+    let previousMaterialUrls: string[] = []
+    let couldInspectPreviousMaterials = true
+    try {
+      const [nodes, questions] = await Promise.all([
+        prisma.roadmapNode.findMany({
+          where: { resourceUrl: { contains: `/storage/v1/object/public/${LESSON_MATERIALS_BUCKET}/` } },
+          select: { resourceUrl: true },
+        }),
+        prisma.question.findMany({
+          where: { imageUrl: { contains: `/storage/v1/object/public/${LESSON_MATERIALS_BUCKET}/` } },
+          select: { imageUrl: true },
+        }),
+      ])
+      previousMaterialUrls = [
+        ...nodes.map((node) => node.resourceUrl),
+        ...questions.flatMap((question) => question.imageUrl ? [question.imageUrl] : []),
+      ]
+    } catch (error) {
+      couldInspectPreviousMaterials = false
+      console.error('Could not inspect existing lesson materials before saving the curriculum.', error)
+    }
+
     await prisma.$transaction(async (transaction) => {
       const existingSubjects = await transaction.subject.findMany({
         where: { id: { in: [...subjectIds] } },
@@ -322,6 +417,10 @@ export async function PUT(request: Request) {
           },
         },
       })
+      const existingSubmodulesById = new Map(existingSubjects.flatMap((subject) =>
+        subject.chapters.flatMap((chapter) => chapter.submodules.map((submodule) => [submodule.id, submodule] as const))))
+      const existingNodesById = new Map(existingSubjects.flatMap((subject) =>
+        subject.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, node] as const))))
       const existingChapters = chapterIds.length
         ? await transaction.chapter.findMany({ where: { id: { in: chapterIds } }, select: { id: true, subjectId: true } })
         : []
@@ -330,18 +429,34 @@ export async function PUT(request: Request) {
         throw new Error('CURRICULUM_OWNERSHIP_CONFLICT')
       }
       const existingNodes = nodeIds.length
-        ? await transaction.roadmapNode.findMany({ where: { id: { in: nodeIds } }, select: { id: true, chapterId: true } })
+        ? await transaction.roadmapNode.findMany({
+          where: { id: { in: nodeIds } },
+          select: { id: true, chapterId: true, chapter: { select: { subjectId: true } } },
+        })
         : []
-      const requestedNodeOwners = new Map(subjects.flatMap((subject) => subject.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, chapter.id] as const))))
-      if (existingNodes.some((node) => requestedNodeOwners.get(node.id) !== node.chapterId)) {
+      const requestedNodeOwners = new Map(subjects.flatMap((subject) =>
+        subject.chapters.flatMap((chapter) => chapter.nodes.map((node) => [node.id, { chapterId: chapter.id, subjectId: subject.id }] as const))))
+      if (existingNodes.some((node) => {
+        const requestedOwner = requestedNodeOwners.get(node.id)
+        return !requestedOwner
+          || (requestedOwner.chapterId !== node.chapterId && requestedOwner.subjectId !== node.chapter.subjectId)
+      })) {
         throw new Error('CURRICULUM_OWNERSHIP_CONFLICT')
       }
       const existingSubmodules = submoduleIds.length
-        ? await transaction.submodule.findMany({ where: { id: { in: submoduleIds } }, select: { id: true, chapterId: true } })
+        ? await transaction.submodule.findMany({
+          where: { id: { in: submoduleIds } },
+          select: { id: true, chapterId: true, chapter: { select: { subjectId: true } } },
+        })
         : []
       const requestedSubmoduleOwners = new Map(subjects.flatMap((subject) =>
-        subject.chapters.flatMap((chapter) => chapter.submodules.map((submodule) => [submodule.id, chapter.id] as const))))
-      if (existingSubmodules.some((submodule) => requestedSubmoduleOwners.get(submodule.id) !== submodule.chapterId)) {
+        subject.chapters.flatMap((chapter) =>
+          chapter.submodules.map((submodule) => [submodule.id, { chapterId: chapter.id, subjectId: subject.id }] as const))))
+      if (existingSubmodules.some((submodule) => {
+        const requestedOwner = requestedSubmoduleOwners.get(submodule.id)
+        return !requestedOwner
+          || (requestedOwner.chapterId !== submodule.chapterId && requestedOwner.subjectId !== submodule.chapter.subjectId)
+      })) {
         throw new Error('CURRICULUM_OWNERSHIP_CONFLICT')
       }
 
@@ -362,6 +477,7 @@ export async function PUT(request: Request) {
           name: subject.name.trim(),
           icon: subject.icon || null,
           color: subject.color,
+    isPublished: Boolean(subject.isPublished ?? true),
           gradeId: grade.id,
         }
         if (existing) {
@@ -369,6 +485,7 @@ export async function PUT(request: Request) {
             existing.name !== subjectData.name
             || existing.icon !== subjectData.icon
             || existing.color !== subjectData.color
+            || existing.isPublished !== subjectData.isPublished
             || existing.gradeId !== subjectData.gradeId
           ) {
             await transaction.subject.update({ where: { id: subject.id }, data: subjectData })
@@ -378,15 +495,10 @@ export async function PUT(request: Request) {
             data: { id: subject.id, ...subjectData, createdById: authentication.appUser.id },
           })
         }
+      }
 
-        const chapterIds = new Set(subject.chapters.map((chapter) => chapter.id))
-        const removedChapterIds = (existing?.chapters ?? [])
-          .map((chapter) => chapter.id)
-          .filter((id) => !chapterIds.has(id))
-        if (removedChapterIds.length) {
-          await transaction.chapter.deleteMany({ where: { id: { in: removedChapterIds }, subjectId: subject.id } })
-        }
-
+      for (const subject of subjects) {
+        const existing = existingSubjects.find((item) => item.id === subject.id)
         for (const chapter of subject.chapters) {
           const existingChapter = existing?.chapters.find((item) => item.id === chapter.id)
           const chapterData = {
@@ -413,11 +525,60 @@ export async function PUT(request: Request) {
               },
             })
           }
+        }
+      }
 
-          const requestedSubmoduleIds = new Set(chapter.submodules.map((submodule) => submodule.id))
-          const existingChapterSubmodules = existingChapter?.submodules ?? []
+      const temporarySubmoduleOrders = new Map<string, number>()
+      for (const submodule of existingSubmodules) {
+        const requestedOwner = requestedSubmoduleOwners.get(submodule.id)
+        if (!requestedOwner || requestedOwner.chapterId === submodule.chapterId) continue
+        const temporaryOrder = (temporarySubmoduleOrders.get(requestedOwner.chapterId) ?? 0) + 1
+        temporarySubmoduleOrders.set(requestedOwner.chapterId, temporaryOrder)
+        await transaction.submodule.update({
+          where: { id: submodule.id },
+          data: { chapterId: requestedOwner.chapterId, order: -temporaryOrder },
+        })
+      }
+      for (const node of existingNodes) {
+        const requestedOwner = requestedNodeOwners.get(node.id)
+        if (!requestedOwner || requestedOwner.chapterId === node.chapterId) continue
+        await transaction.roadmapNode.update({
+          where: { id: node.id },
+          data: { chapterId: requestedOwner.chapterId },
+        })
+      }
+
+      for (const subject of subjects) {
+        const existing = existingSubjects.find((item) => item.id === subject.id)
+        const requestedChapterIds = new Set(subject.chapters.map((chapter) => chapter.id))
+        const removedChapterIds = (existing?.chapters ?? [])
+          .map((chapter) => chapter.id)
+          .filter((id) => !requestedChapterIds.has(id))
+        if (removedChapterIds.length) {
+          await transaction.chapter.deleteMany({ where: { id: { in: removedChapterIds }, subjectId: subject.id } })
+        }
+      }
+
+      const requestedNodeIds = new Set(nodeIds)
+      const removedNodeIds = existingSubjects
+        .flatMap((subject) => subject.chapters.flatMap((chapter) => chapter.nodes.map((node) => node.id)))
+        .filter((id) => !requestedNodeIds.has(id))
+      if (removedNodeIds.length) {
+        await transaction.roadmapNode.deleteMany({ where: { id: { in: removedNodeIds } } })
+      }
+
+      const requestedSubmoduleIdSet = new Set(submoduleIds)
+      const removedSubmoduleIds = existingSubjects
+        .flatMap((subject) => subject.chapters.flatMap((chapter) => chapter.submodules.map((submodule) => submodule.id)))
+        .filter((id) => !requestedSubmoduleIdSet.has(id))
+      if (removedSubmoduleIds.length) {
+        await transaction.submodule.deleteMany({ where: { id: { in: removedSubmoduleIds } } })
+      }
+
+      for (const subject of subjects) {
+        for (const chapter of subject.chapters) {
           for (const submodule of chapter.submodules) {
-            const existingSubmodule = existingChapterSubmodules.find((item) => item.id === submodule.id)
+            const existingSubmodule = existingSubmodulesById.get(submodule.id)
             const submoduleData = {
               title: submodule.title.trim(),
               order: submodule.order,
@@ -431,6 +592,7 @@ export async function PUT(request: Request) {
                 || existingSubmodule.order !== submoduleData.order
                 || existingSubmodule.summaryText !== submoduleData.summaryText
                 || existingSubmodule.isPublished !== submoduleData.isPublished
+                || existingSubmodule.chapterId !== submoduleData.chapterId
               ) {
                 await transaction.submodule.update({ where: { id: submodule.id }, data: submoduleData })
               }
@@ -444,15 +606,8 @@ export async function PUT(request: Request) {
             }
           }
 
-          const nodeIds = new Set(chapter.nodes.map((node) => node.id))
-          const existingChapterNodes = existingChapter?.nodes ?? []
-          const removedNodeIds = existingChapterNodes.map((node) => node.id).filter((id) => !nodeIds.has(id))
-          if (removedNodeIds.length) {
-            await transaction.roadmapNode.deleteMany({ where: { id: { in: removedNodeIds }, chapterId: chapter.id } })
-          }
-
           for (const [index, node] of chapter.nodes.entries()) {
-            const existingNode = existingChapterNodes.find((item) => item.id === node.id)
+            const existingNode = existingNodesById.get(node.id)
             const nodeData = {
               title: node.title.trim(),
               order: index + 1,
@@ -516,6 +671,8 @@ export async function PUT(request: Request) {
                   data: {
                     id: question.id,
                     prompt: question.prompt.trim(),
+                    imageUrl: question.imageUrl ?? null,
+                    imageAlt: question.imageUrl ? question.imageAlt?.trim() ?? null : null,
                     nodeId: node.id,
                     options: {
                       create: question.options.map((option) => ({
@@ -530,8 +687,19 @@ export async function PUT(request: Request) {
               }
 
               const prompt = question.prompt.trim()
-              if (existingQuestion.prompt !== prompt) {
-                await transaction.question.update({ where: { id: question.id }, data: { prompt } })
+              const imageUrl = question.imageUrl === undefined ? existingQuestion.imageUrl : question.imageUrl
+              const imageAlt = imageUrl
+                ? question.imageAlt === undefined ? existingQuestion.imageAlt : question.imageAlt?.trim() ?? null
+                : null
+              if (
+                existingQuestion.prompt !== prompt
+                || existingQuestion.imageUrl !== imageUrl
+                || existingQuestion.imageAlt !== imageAlt
+              ) {
+                await transaction.question.update({
+                  where: { id: question.id },
+                  data: { prompt, imageUrl, imageAlt },
+                })
               }
 
               const requestedOptionIds = new Set(question.options.map((option) => option.id))
@@ -560,19 +728,47 @@ export async function PUT(request: Request) {
               }
             }
           }
-
-          const removedSubmoduleIds = existingChapterSubmodules
-            .map((submodule) => submodule.id)
-            .filter((id) => !requestedSubmoduleIds.has(id))
-          if (removedSubmoduleIds.length) {
-            await transaction.submodule.deleteMany({
-              where: { id: { in: removedSubmoduleIds }, chapterId: chapter.id },
-            })
-          }
         }
       }
     }, { maxWait: 10_000, timeout: 30_000 })
-    return NextResponse.json({ saved: true })
+
+    if (couldInspectPreviousMaterials) {
+      try {
+        const [nodes, questions] = await Promise.all([
+          prisma.roadmapNode.findMany({
+            where: { resourceUrl: { contains: `/storage/v1/object/public/${LESSON_MATERIALS_BUCKET}/` } },
+            select: { resourceUrl: true },
+          }),
+          prisma.question.findMany({
+            where: { imageUrl: { contains: `/storage/v1/object/public/${LESSON_MATERIALS_BUCKET}/` } },
+            select: { imageUrl: true },
+          }),
+        ])
+        const currentMaterialUrls = new Set([
+          ...nodes.map((node) => node.resourceUrl),
+          ...questions.flatMap((question) => question.imageUrl ? [question.imageUrl] : []),
+        ])
+        const unreferencedMaterialUrls = [...new Set(previousMaterialUrls)]
+          .filter((materialUrl) => !currentMaterialUrls.has(materialUrl))
+        if (unreferencedMaterialUrls.length > 0) {
+          const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+          const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+          if (!supabaseUrl || !serviceRoleKey) {
+            cleanupWarning = true
+            console.error('Curriculum saved, but old lesson materials and question images could not be removed because storage cleanup is not configured.')
+          } else {
+            await removeUnreferencedLessonMaterials(unreferencedMaterialUrls, supabaseUrl, serviceRoleKey)
+          }
+        }
+      } catch (error) {
+        cleanupWarning = true
+        console.error('Curriculum saved, but unreferenced lesson materials and question images could not be removed.', error)
+      }
+    } else {
+      cleanupWarning = true
+    }
+
+    return NextResponse.json({ saved: true, cleanupWarning })
   } catch (error) {
     if (error instanceof Error && error.message === 'CURRICULUM_OWNERSHIP_CONFLICT') {
       return NextResponse.json({ error: 'You can only edit curriculum that belongs to your account.' }, { status: 403 })

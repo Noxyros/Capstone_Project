@@ -86,7 +86,8 @@ export interface HeartRegenerationResult {
 }
 
 /**
- * Advances +1 heart per elapsed 30-minute interval, capped at maxHearts.
+ * Grants the first heart at its refill deadline, then one per elapsed interval,
+ * capped at maxHearts.
  * Starts a timer when hearts < max and none exists; clears it when full.
  */
 export function syncHeartRegeneration(
@@ -105,10 +106,7 @@ export function syncHeartRegeneration(
   if (elapsedMs < 0) {
     return { hearts, heartRefillAt }
   }
-  const intervalsElapsed = Math.floor(elapsedMs / HEART_REFILL_INTERVAL_MS)
-  if (intervalsElapsed === 0) {
-    return { hearts, heartRefillAt }
-  }
+  const intervalsElapsed = Math.floor(elapsedMs / HEART_REFILL_INTERVAL_MS) + 1
   const newHearts = Math.min(hearts + intervalsElapsed, maxHearts)
   if (newHearts >= maxHearts) {
     return { hearts: maxHearts, heartRefillAt: null }

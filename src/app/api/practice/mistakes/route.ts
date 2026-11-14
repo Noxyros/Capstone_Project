@@ -45,6 +45,8 @@ export async function GET() {
           select: {
             id: true,
             prompt: true,
+            imageUrl: true,
+            imageAlt: true,
             options: { select: { id: true, text: true, isCorrect: true } },
             node: {
               select: {
@@ -71,6 +73,8 @@ export async function GET() {
         mistakes.push({
           questionId: question.id,
           prompt: question.prompt,
+          imageUrl: question.imageUrl,
+          imageAlt: question.imageAlt,
           options: question.options.map(({ id, text }) => ({ id, text })),
           allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
           chapterId: question.node.chapterId,

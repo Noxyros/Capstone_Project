@@ -21,6 +21,8 @@ type QuestionDraft = {
   subjectName: string
   gradeLevel: number
   prompt: string
+  imageUrl: string | null
+  imageAlt: string | null
   options: { text: string; isCorrect: boolean }[]
 }
 
@@ -64,21 +66,84 @@ function shuffle<T>(items: T[]): T[] {
   return shuffled
 }
 
-function selectQuestions<T extends { subjectName: string }>(items: T[]): T[] {
+function selectQuestions<T extends { subjectName: string }>(items: T[], count = QUESTION_COUNT): T[] {
   const selected: T[] = []
   const subjects = new Set<string>()
   for (const item of shuffle(items)) {
     if (subjects.has(item.subjectName)) continue
     selected.push(item)
     subjects.add(item.subjectName)
-    if (selected.length === QUESTION_COUNT) return shuffle(selected)
+    if (selected.length === count) return shuffle(selected)
   }
   for (const item of shuffle(items)) {
     if (selected.includes(item)) continue
     selected.push(item)
-    if (selected.length === QUESTION_COUNT) break
+    if (selected.length === count) break
   }
   return shuffle(selected)
+}
+
+function getEligibleCurriculumQuestions(questionIds?: string[]) {
+  return prisma.question.findMany({
+    where: {
+      ...(questionIds ? { id: { in: questionIds } } : {}),
+      node: {
+        type: { in: [RoadmapNodeType.QUIZ, RoadmapNodeType.BOSS] },
+        isPublished: true,
+        chapter: {
+          isPublished: true,
+          subject: {
+            isPublished: true,
+            grade: { level: DAILY_CHALLENGE_GRADE },
+          },
+        },
+        OR: [
+          { submoduleId: null },
+          {
+            submodule: {
+              isPublished: true,
+              chapter: { isPublished: true, subject: { isPublished: true } },
+            },
+          },
+        ],
+      },
+    },
+    select: {
+      id: true,
+      prompt: true,
+      imageUrl: true,
+      imageAlt: true,
+      options: { select: { id: true, text: true, isCorrect: true } },
+      node: {
+        select: {
+          chapter: {
+            select: {
+              subject: { select: { name: true, grade: { select: { level: true } } } },
+            },
+          },
+        },
+      },
+    },
+  })
+}
+
+function isSourceQuestionCurrent(
+  snapshot: { prompt: string; imageUrl: string | null; imageAlt: string | null; options: { text: string; isCorrect: boolean }[] },
+  source: { prompt: string; imageUrl: string | null; imageAlt: string | null; options: { text: string; isCorrect: boolean }[] },
+): boolean {
+  if (
+    snapshot.prompt !== source.prompt
+    || snapshot.imageUrl !== source.imageUrl
+    || snapshot.imageAlt !== source.imageAlt
+    || !source.prompt.trim()
+    || source.options.length !== 4
+    || !source.options.every((option) => option.text.trim())
+    || source.options.filter((option) => option.isCorrect).length !== 1
+  ) return false
+
+  const sortOptions = (options: { text: string; isCorrect: boolean }[]) =>
+    options.map((option) => `${option.text}\u0000${option.isCorrect}`).sort()
+  return JSON.stringify(sortOptions(snapshot.options)) === JSON.stringify(sortOptions(source.options))
 }
 
 async function generateFallbackQuestion(
@@ -89,7 +154,7 @@ async function generateFallbackQuestion(
   if (!apiKey) {
     throw new DailyQuizError('There are not enough unused curriculum questions, and AI question generation is not configured.', 503)
   }
-  const model = process.env.GEMINI_ROADMAP_MODEL?.trim() || 'gemini-3.5-flash'
+  const model = process.env.GEMINI_ROADMAP_MODEL?.trim() || 'gemini-3.6-flash'
   const languageInstruction = context.language === 'id'
     ? 'Write the question and all answer options in natural Indonesian.'
     : 'Write the question and all answer options in clear English.'
@@ -220,10 +285,12 @@ function getPublicChallenge(challenge: NonNullable<Awaited<ReturnType<typeof get
         id: question.id,
         position: question.position,
         prompt: question.prompt,
+        imageUrl: question.imageUrl,
+        imageAlt: question.imageAlt,
         options: question.options.map(({ id, text }) => ({ id, text })),
-        correctOptionId: question.options.find((option) => option.isCorrect)?.id ?? null,
         answered: Boolean(answer),
         ...(answer ? {
+          correctOptionId: question.options.find((option) => option.isCorrect)?.id ?? null,
           isCorrect: answer.passed,
         } : {}),
       }
@@ -242,9 +309,25 @@ export async function GET() {
   const monthKey = jakartaCalendarDateKey().slice(0, 7)
   try {
     const existing = await getTodaysChallenge(userId, date)
+    let staleQuestions: NonNullable<Awaited<ReturnType<typeof getTodaysChallenge>>>['questions'] = []
     if (existing) {
-      return NextResponse.json({ challenge: getPublicChallenge(existing) }, { headers: { 'Cache-Control': 'no-store' } })
+      const sourceIds = existing.questions
+        .map((question) => question.sourceQuestionId)
+        .filter((id): id is string => Boolean(id))
+      const sourceQuestions = sourceIds.length
+        ? await getEligibleCurriculumQuestions(sourceIds)
+        : []
+      const sourceById = new Map(sourceQuestions.map((question) => [question.id, question]))
+      staleQuestions = existing.questions.filter((question) => {
+        if (!question.sourceQuestionId) return false
+        const source = sourceById.get(question.sourceQuestionId)
+        return !source || !isSourceQuestionCurrent(question, source)
+      })
+      if (staleQuestions.length === 0) {
+        return NextResponse.json({ challenge: getPublicChallenge(existing) }, { headers: { 'Cache-Control': 'no-store' } })
+      }
     }
+    const questionTarget = existing ? staleQuestions.length : QUESTION_COUNT
 
     const [usedThisMonth, legacyUsedThisMonth] = await Promise.all([
       prisma.dailyChallengeQuestion.findMany({
@@ -263,33 +346,7 @@ export async function GET() {
       .filter((id): id is string => Boolean(id)))
     const usedPrompts = previousQuestions.map((question) => question.prompt).filter(Boolean)
     const usedPromptKeys = new Set(usedPrompts.map(getQuestionKey))
-    const candidates = await prisma.question.findMany({
-      where: {
-        node: {
-          type: { in: [RoadmapNodeType.QUIZ, RoadmapNodeType.BOSS] },
-          isPublished: true,
-          chapter: {
-            isPublished: true,
-            subject: { grade: { level: DAILY_CHALLENGE_GRADE } },
-          },
-          OR: [{ submoduleId: null }, { submodule: { isPublished: true } }],
-        },
-      },
-      select: {
-        id: true,
-        prompt: true,
-        options: { select: { id: true, text: true, isCorrect: true } },
-        node: {
-          select: {
-            chapter: {
-              select: {
-                subject: { select: { name: true, grade: { select: { level: true } } } },
-              },
-            },
-          },
-        },
-      },
-    })
+    const candidates = await getEligibleCurriculumQuestions()
     const candidatePromptKeys = new Set(usedPromptKeys)
     const available = shuffle(candidates.filter((question) => {
       const key = getQuestionKey(question.prompt)
@@ -304,7 +361,7 @@ export async function GET() {
       ...question,
       subjectName: question.node.chapter.subject.name,
     })))
-    const curriculumQuestions = selectQuestions(available).map((question): QuestionDraft => {
+    const curriculumQuestions = selectQuestions(available, questionTarget).map((question): QuestionDraft => {
       const subject = question.node.chapter.subject
       return {
         questionKey: getQuestionKey(question.prompt),
@@ -312,16 +369,37 @@ export async function GET() {
         subjectName: subject.name,
         gradeLevel: subject.grade.level,
         prompt: question.prompt,
+        imageUrl: question.imageUrl,
+        imageAlt: question.imageAlt,
         options: shuffle(question.options).map(({ text, isCorrect }) => ({ text, isCorrect })),
       }
     })
     const questions = [...curriculumQuestions]
 
-    if (questions.length < QUESTION_COUNT) {
+    if (questions.length < questionTarget) {
       const curriculum = await prisma.subject.findMany({
         where: {
           grade: { level: DAILY_CHALLENGE_GRADE },
-          chapters: { some: { isPublished: true, nodes: { some: { isPublished: true } } } },
+          isPublished: true,
+          chapters: {
+            some: {
+              isPublished: true,
+              nodes: {
+                some: {
+                  isPublished: true,
+                  OR: [
+                    { submoduleId: null },
+                    {
+                      submodule: {
+                        isPublished: true,
+                        chapter: { isPublished: true, subject: { isPublished: true } },
+                      },
+                    },
+                  ],
+                },
+              },
+            },
+          },
         },
         select: {
           name: true,
@@ -332,7 +410,18 @@ export async function GET() {
               title: true,
               summaryText: true,
               nodes: {
-                where: { isPublished: true },
+                where: {
+                  isPublished: true,
+                  OR: [
+                    { submoduleId: null },
+                    {
+                      submodule: {
+                        isPublished: true,
+                        chapter: { isPublished: true, subject: { isPublished: true } },
+                      },
+                    },
+                  ],
+                },
                 select: { title: true, content: true },
                 orderBy: { order: 'asc' },
                 take: 8,
@@ -365,7 +454,7 @@ export async function GET() {
       }
       const promptsForGeneration = [...usedPrompts, ...questions.map((question) => question.prompt)]
       const keysForGeneration = new Set([...usedKeys, ...questions.map((question) => question.questionKey)])
-      while (questions.length < QUESTION_COUNT) {
+      while (questions.length < questionTarget) {
         let generated: GeneratedQuestion | null = null
         let generatedContext: (typeof contexts)[number] | null = null
         for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -398,6 +487,8 @@ export async function GET() {
           subjectName: generatedContext.subjectName,
           gradeLevel: generatedContext.gradeLevel,
           prompt: generated.prompt,
+          imageUrl: null,
+          imageAlt: null,
           options: shuffle(generated.options.map((text, index) => ({
             text,
             isCorrect: index === generated!.correctIndex,
@@ -406,6 +497,49 @@ export async function GET() {
         promptsForGeneration.push(generated.prompt)
         keysForGeneration.add(key)
       }
+    }
+
+    if (existing) {
+      await withTransactionConflictRetry(async () => prisma.$transaction(async (transaction) => {
+        for (const [index, staleQuestion] of staleQuestions.entries()) {
+          const replacement = questions[index]
+          if (!replacement) throw new Error('A replacement daily question is missing.')
+          const deleted = await transaction.dailyChallengeQuestion.deleteMany({
+            where: { id: staleQuestion.id, challengeId: existing.id },
+          })
+          if (deleted.count === 0) continue
+          await transaction.dailyChallengeQuestion.create({
+            data: {
+              id: randomUUID(),
+              challengeId: existing.id,
+              userId,
+              monthKey,
+              questionKey: replacement.questionKey,
+              sourceQuestionId: replacement.sourceQuestionId,
+              position: staleQuestion.position,
+              subjectName: replacement.subjectName,
+              gradeLevel: replacement.gradeLevel,
+              prompt: replacement.prompt,
+              imageUrl: replacement.imageUrl,
+              imageAlt: replacement.imageAlt,
+              options: {
+                create: replacement.options.map((option) => ({
+                  id: randomUUID(),
+                  text: option.text,
+                  isCorrect: option.isCorrect,
+                })),
+              },
+            },
+          })
+        }
+      }, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        maxWait: 10_000,
+        timeout: 30_000,
+      }))
+      const refreshed = await getTodaysChallenge(userId, date)
+      if (!refreshed) throw new Error('The daily challenge could not be refreshed.')
+      return NextResponse.json({ challenge: getPublicChallenge(refreshed) }, { headers: { 'Cache-Control': 'no-store' } })
     }
 
     const challenge = await prisma.dailyChallenge.create({
@@ -424,6 +558,8 @@ export async function GET() {
             subjectName: question.subjectName,
             gradeLevel: question.gradeLevel,
             prompt: question.prompt,
+            imageUrl: question.imageUrl,
+            imageAlt: question.imageAlt,
             options: {
               create: question.options.map((option) => ({
                 id: randomUUID(),

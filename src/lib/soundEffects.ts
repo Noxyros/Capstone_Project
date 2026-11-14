@@ -79,7 +79,7 @@ export function playCorrectSound(): void {
 }
 
 /**
- * Soft, gentle downward boop for incorrect answers.
+ * Clear, brief descending cue for incorrect answers.
  */
 export function playIncorrectSound(): void {
   if (!isSoundEnabled()) return
@@ -88,22 +88,27 @@ export function playIncorrectSound(): void {
     if (!ctx) return
     const now = ctx.currentTime
 
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
+    const notes = [
+      { frequency: 392, start: 0, duration: 0.14 },
+      { frequency: 293.66, start: 0.12, duration: 0.24 },
+    ]
 
-    osc.type = 'triangle'
-    osc.frequency.setValueAtTime(220, now)
-    osc.frequency.exponentialRampToValueAtTime(140, now + 0.28)
+    for (const note of notes) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      const start = now + note.start
 
-    gain.gain.setValueAtTime(0.001, now)
-    gain.gain.linearRampToValueAtTime(0.18, now + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28)
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(note.frequency, start)
+      gain.gain.setValueAtTime(0.001, start)
+      gain.gain.linearRampToValueAtTime(0.28, start + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + note.duration)
 
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-
-    osc.start(now)
-    osc.stop(now + 0.28)
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(start)
+      osc.stop(start + note.duration)
+    }
   } catch {}
 }
 

@@ -35,7 +35,7 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
     return () => document.removeEventListener('pointerdown', onPointerDown)
   }, [])
 
-  const moreActive = pathname === '/settings' || pathname === '/help' || pathname === '/teacher'
+  const moreActive = pathname === '/settings' || pathname === '/help'
 
   if (mobile) {
     return (
@@ -86,7 +86,11 @@ export default function Sidebar({ mobile = false }: { mobile?: boolean }) {
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
               className={`w-full flex items-center gap-4 px-4 py-3 rounded-2xl font-extrabold text-sm uppercase tracking-wide transition-all hover:bg-white hover:shadow-sm ${
-                moreOpen || moreActive ? 'bg-white border-2 border-b-4 border-slate-300 text-slate-700' : 'text-slate-500 border-2 border-transparent'
+                moreActive
+                  ? 'bg-white border-2 border-b-4 border-indigo-500 text-indigo-600'
+                  : moreOpen
+                    ? 'bg-white border-2 border-b-4 border-slate-400 text-slate-700 shadow-sm'
+                    : 'text-slate-500 border-2 border-transparent'
               }`}
             >
               <Ellipsis className="w-6 h-6 text-violet-500" />

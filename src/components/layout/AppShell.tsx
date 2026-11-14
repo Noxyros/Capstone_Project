@@ -12,6 +12,7 @@ import { loadCurriculum } from '@/src/lib/curriculumClient'
 import { loadLeaderboard } from '@/src/lib/leaderboardClient'
 import { PROGRESS_SYNC_EVENT, syncPendingProgress, type ProgressSyncEventDetail } from '@/src/lib/progressSyncClient'
 import { checkAndSendDailyReminder } from '@/src/lib/dailyReminders'
+import { playClickSound } from '@/src/lib/soundEffects'
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname()
@@ -19,6 +20,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const { t, language } = useLanguage()
   const [progressSyncError, setProgressSyncError] = useState('')
   const isNodeActivity = /^\/chapter\/[^/]+\/node\/[^/]+$/.test(pathname)
+  const isChallengeActivity = /^\/practice\/bank\/[^/]+\/[^/]+\/[^/]+$/.test(pathname)
   const learnerStats = state === 'signed_in'
     ? <StatsPanel />
     : state === 'loading'
@@ -39,6 +41,20 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         )
         : null
+
+  useEffect(() => {
+    const playNavigationClick = (event: MouseEvent) => {
+      if (!(event.target instanceof Element)) return
+      const link = event.target.closest('a[href]')
+      if (!(link instanceof HTMLAnchorElement)) return
+      if (link.hasAttribute('download') || link.target === '_blank') return
+      if (link.getAttribute('href')?.startsWith('#') || link.href === window.location.href) return
+      playClickSound()
+    }
+
+    document.addEventListener('click', playNavigationClick, true)
+    return () => document.removeEventListener('click', playNavigationClick, true)
+  }, [])
 
   useEffect(() => {
     if (state !== 'signed_in' || !user?.id) return
@@ -121,7 +137,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     return <main className="min-h-dvh w-full">{children}</main>
   }
 
-  if (isNodeActivity) {
+  if (isNodeActivity || isChallengeActivity) {
     return (
       <main className="min-h-dvh w-full">
         {progressSyncError && <p role="status" className="fixed bottom-4 left-4 right-4 z-50 mx-auto max-w-xl rounded-xl border border-amber-200 bg-amber-50 p-3 text-center text-sm font-bold text-amber-800 shadow-lg">{progressSyncError}</p>}
