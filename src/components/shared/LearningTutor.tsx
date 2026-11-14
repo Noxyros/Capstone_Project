@@ -4,8 +4,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { Bot, MessageCircle, Send, Sparkles } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import rehypeKatex from 'rehype-katex'
+import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import { useLanguage } from '@/src/context/LanguageContext'
+import { normalizeMarkdownMath } from '@/src/lib/markdownMath'
 
 type TutorContext =
   | {
@@ -30,48 +32,86 @@ type TutorMessage = {
   text: string
 }
 
-// Fenced code blocks are split out (odd indexes) so math conversion never touches them.
-const CODE_FENCE = /(```[\s\S]*?```)/g
-
-/**
- * Converts the LaTeX delimiters models like to emit (\[ \] and \( \)) into the
- * $$ / $ delimiters remark-math understands.
- *
- * Important: this must never guess at "bare" equations line by line. Doing so
- * wrapped lines that were already inside a $$ block and stripped their list
- * indentation, which flipped the $$ open/close fences and made KaTeX try to
- * parse normal text (the red "*Example:* $...$" lines). If the model forgets
- * delimiters, fix it in the system prompt instead.
- */
 function normalizeTutorMath(markdown: string): string {
-  return markdown
-    .split(CODE_FENCE)
-    .map((chunk, i) => (i % 2 === 1 ? chunk : normalizeChunk(chunk)))
-    .join('')
+  return fixEmphasis(normalizeMarkdownMath(markdown))
 }
 
-function normalizeChunk(text: string): string {
-  return text
-    // \[ ... \] starting a line -> real $$ block; every line keeps the opening line's indentation
-    .replace(/^([ \t]*)\\\[((?:(?!\\\])[\s\S])+)\\\][ \t]*$/gm, (_, indent: string, math: string) => {
-      const body = math.trim().split('\n').map((line) => `${indent}${line.trim()}`).join('\n')
-      return `${indent}$$\n${body}\n${indent}$$`
-    })
-    // \[ ... \] in the middle of a sentence
-    .replace(/\\\[([\s\S]+?)\\\]/g, (_, math: string) => `$$${math.trim()}$$`)
-    // \( ... \) -> $ ... $
-    .replace(/\\\(([\s\S]+?)\\\)/g, (_, math: string) => `$${math.trim()}$`)
-    // a line that is only "$$ ... $$" -> fenced block (single-line $$ is parsed as inline math)
-    .replace(/^([ \t]*)\$\$([^$\n]+?)\$\$[ \t]*$/gm, (_, indent: string, math: string) =>
-      `${indent}$$\n${indent}${math.trim()}\n${indent}$$`)
-    // clean up "* *bold* *" and "_ _bold_ _"
-    .replace(/\*\s+\*([^*\n]+?)\s+\*\s+\*/g, (_, phrase: string) => `**${phrase.trim()}**`)
-    .replace(/_\s+_([^_\n]+?)\s+_\s+_/g, (_, phrase: string) => `**${phrase.trim()}**`)
-    .replace(/\*\*\s+([^*\n]+?)\s+\*\*/g, '**$1**')
-    .replace(/__\s+([^_\n]+?)\s+__/g, '**$1**')
+// Regions that emphasis fixing must never touch: fenced code, inline code,
+// display math, inline math.
+const PROTECTED = /```[\s\S]*?```|`[^`\n]+`|\$\$[\s\S]*?\$\$|\$[^$\n]+\$/g
+const STASHED = /\u0000(\d+)\u0000/g
+
+function fixEmphasis(text: string): string {
+  const stash: string[] = []
+  const masked = text.replace(PROTECTED, (m) => `\u0000${stash.push(m) - 1}\u0000`)
+  return masked
+    .split('\n')
+    .map(fixEmphasisLine)
+    .join('\n')
+    .replace(STASHED, (_, i) => stash[Number(i)])
 }
 
-export function LearningTutor({ context }: { context: TutorContext }) {
+function fixEmphasisLine(line: string): string {
+  // Leave list markers alone ("* item", "- item", "1. item").
+  let prefix = line.match(/^\s*(?:[-+*]|\d+[.)])\s+/)?.[0] ?? ''
+  let body = line.slice(prefix.length)
+
+  // "* You start at*": the leading "*" is an italic opener, not a bullet,
+  // when the body has one leftover marker and the line ends with it.
+  const runCount = (body.match(/\*{1,2}/g) ?? []).length
+  if (
+    /^\s*\*\s+$/.test(prefix)
+    && runCount % 2 === 1
+    && /\*[.,!?;:)"'”’\s]*$/.test(body)
+  ) {
+    prefix = ''
+    body = line
+  }
+
+  const runs = [...body.matchAll(/\*{1,2}/g)]
+  // Odd count = we can't tell what's intended; don't guess.
+  if (runs.length < 2 || runs.length % 2 !== 0) return line
+
+  const isSpace = (ch?: string) => ch === undefined || /\s/.test(ch)
+  const floating = (m: RegExpMatchArray) =>
+    isSpace(body[m.index! - 1]) && isSpace(body[m.index! + m[0].length])
+
+  let out = ''
+  let cursor = 0
+  for (let i = 0; i < runs.length; i += 2) {
+    const open = runs[i]
+    const close = runs[i + 1]
+    const start = open.index!
+    const end = close.index! + close[0].length
+    const inner = body.slice(start + open[0].length, close.index).trim()
+
+    // "3 * 4 * 5" is multiplication: both markers float and have matching length.
+    const skip =
+      !inner ||
+      (open[0].length === close[0].length && floating(open) && floating(close))
+
+    out += body.slice(cursor, start)
+    if (skip) {
+      out += body.slice(start, end)
+    } else {
+      const next = body[end]
+      const needsSpace = next !== undefined && /[\p{L}\p{N}]/u.test(next)
+      out += `${open[0]}${inner}${open[0]}${needsSpace ? ' ' : ''}`
+    }
+    cursor = end
+  }
+  return prefix + out + body.slice(cursor)
+}
+
+export function LearningTutor({
+  context,
+  autoPrompt,
+  autoPromptOnOpen = false,
+}: {
+  context: TutorContext
+  autoPrompt?: string
+  autoPromptOnOpen?: boolean
+}) {
   const { language, t } = useLanguage()
   const [isOpen, setIsOpen] = useState(false)
   const [input, setInput] = useState('')
@@ -79,6 +119,13 @@ export function LearningTutor({ context }: { context: TutorContext }) {
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
   const isSendingRef = useRef(false)
+  const autoSentRef = useRef(false)
+
+  useEffect(() => {
+    if (!autoPrompt || autoSentRef.current || (autoPromptOnOpen && !isOpen)) return
+    autoSentRef.current = true
+    void sendText(autoPrompt)
+  }, [autoPrompt, autoPromptOnOpen, isOpen])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const isWaitingForFirstToken = isSending && messages[messages.length - 1]?.role !== 'assistant'
 
@@ -89,6 +136,11 @@ export function LearningTutor({ context }: { context: TutorContext }) {
   const sendMessage = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const text = input.trim()
+    if (!text || isSendingRef.current) return
+    await sendText(text)
+  }
+
+  const sendText = async (text: string) => {
     if (!text || isSendingRef.current) return
 
     isSendingRef.current = true
@@ -337,7 +389,7 @@ export function LearningTutor({ context }: { context: TutorContext }) {
             aria-live="polite"
             className="max-h-72 space-y-3 overflow-y-auto p-4 sm:p-5"
           >
-            {messages.length === 0 && (
+            {messages.length === 0 && !autoPrompt && (
               <div className="flex items-start gap-2.5">
                 <Bot className="mt-1 h-5 w-5 shrink-0 text-indigo-500" />
                 <p className="rounded-2xl rounded-tl-md bg-indigo-50 px-3.5 py-2.5 text-sm font-semibold leading-relaxed text-indigo-800">
@@ -359,7 +411,7 @@ export function LearningTutor({ context }: { context: TutorContext }) {
                 ) : (
                   <div className="tutor-message-reveal tutor-markdown max-w-[95%] rounded-2xl rounded-bl-md bg-slate-100 px-3.5 py-2.5 text-sm font-semibold leading-relaxed text-slate-700 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
                     <ReactMarkdown
-                      remarkPlugins={[remarkMath]}
+                      remarkPlugins={[remarkGfm, remarkMath]}
                       rehypePlugins={[rehypeKatex]}
                       components={{
                         h1: ({ children }) => <h1 className="mb-2 mt-3 text-base font-extrabold first:mt-0">{children}</h1>,
@@ -373,7 +425,13 @@ export function LearningTutor({ context }: { context: TutorContext }) {
                         blockquote: ({ children }) => <blockquote className="my-2 border-l-2 border-indigo-300 pl-3 italic">{children}</blockquote>,
                         code: ({ children }) => <code className="rounded bg-slate-200 px-1 py-0.5 font-mono text-[0.9em]">{children}</code>,
                         pre: ({ children }) => <pre className="my-2 overflow-x-auto rounded-xl bg-slate-200 p-3 text-xs">{children}</pre>,
+                        em: ({ children }) => <em className="italic">{children}</em>,
                         a: ({ children, href }) => <a className="font-bold text-indigo-600 underline underline-offset-2" href={href} target="_blank" rel="noreferrer">{children}</a>,
+                        table: ({ children }) => (
+                          <div className="my-2 max-w-full overflow-x-auto">
+                            <table>{children}</table>
+                          </div>
+                        ),
                         hr: () => <hr className="my-3 border-slate-300" />,
                       }}
                     >

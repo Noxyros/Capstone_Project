@@ -48,9 +48,11 @@ export default function ChapterRoadmapPage() {
   }, [fetchSubjects])
 
   const chapterData = subjects.flatMap((subject) => subject.chapters).find((chapter) => chapter.id === chapterId)
-  const parentSubjectId = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))?.id
+  const parentSubject = subjects.find((subject) => subject.chapters.some((chapter) => chapter.id === chapterId))
+  const parentSubjectId = parentSubject?.id
+  const subjectOpen = Boolean(parentSubject?.isPublished)
   const firstAvailableSubmodule = chapterData?.submodules.find((submodule) =>
-    submodule.isPublished && chapterData.chaptersStatus !== 'locked')
+    subjectOpen && submodule.isPublished && chapterData.chaptersStatus !== 'locked')
 
   useEffect(() => {
     if (firstAvailableSubmodule) {
@@ -94,7 +96,7 @@ export default function ChapterRoadmapPage() {
             const completedCount = nodes.filter((node) => node.status === 'completed').length
             const completed = nodes.length > 0 && completedCount === nodes.length
             const progress = nodes.length > 0 ? Math.round((completedCount / nodes.length) * 100) : 0
-            const locked = !submodule.isPublished || chapterData.chaptersStatus === 'locked'
+            const locked = !subjectOpen || !submodule.isPublished || chapterData.chaptersStatus === 'locked'
             return (
               <article
                 key={submodule.id}

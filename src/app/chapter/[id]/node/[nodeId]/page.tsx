@@ -8,11 +8,16 @@ import { getChestBonusItem, CHEST_BONUS_DETAILS, type ChestBonusItem } from '@/s
 import { useLanguage } from '@/src/context/LanguageContext'
 import { LearningTutor } from '@/src/components/shared/LearningTutor'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
+import { YouTubeEmbed } from '@/src/components/shared/YouTubeEmbed'
+import ImageMaterialPreview from '@/src/components/shared/ImageMaterialPreview'
+import QuestionImage from '@/src/components/shared/QuestionImage'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import { loadCurriculum, subscribeToCurriculumChanges } from '@/src/lib/curriculumClient'
-import { getCurriculumResourceFormat, type CurriculumNode } from '@/src/lib/teacherContent'
+import { normalizeAnswerOptionMath, normalizeMarkdownMath } from '@/src/lib/markdownMath'
+import { getCurriculumResourceFormat, getYouTubeEmbedUrl, type CurriculumNode } from '@/src/lib/teacherContent'
 import { useUser } from '@/src/context/UserContext'
 import { useAuth } from '@/src/context/AuthContext'
 import type { AppProfile } from '@/src/lib/appProfile'
@@ -28,6 +33,8 @@ type QuizOption = {
 type QuizQuestion = {
   id: string
   prompt: string
+  imageUrl?: string | null
+  imageAlt?: string | null
   allowsMultipleAnswers?: boolean
   options: QuizOption[]
 }
@@ -61,7 +68,7 @@ function isCheckedAnswerResult(value: unknown): value is CheckedAnswerResult {
 type LessonContent =
   | { kind: 'text'; value: string }
   | { kind: 'poster'; src: string; alt: string }
-  | { kind: 'material'; src: string; format: 'pdf' | 'ebook' | 'file' }
+  | { kind: 'material'; src: string; format: 'pdf' | 'ebook' | 'file'; youtubeEmbedUrl: string | null }
 
 type NodeData =
   | { type: 'lesson'; title: string; content: LessonContent }
@@ -143,6 +150,7 @@ export default function NodeActivityPage() {
               : {
                   kind: 'material',
                   src: node.resourceUrl,
+                  youtubeEmbedUrl: getYouTubeEmbedUrl(node.resourceUrl),
                   format: resourceFormat === 'pdf'
                     ? 'pdf'
                     : resourceFormat === 'presentation' ? 'file' : 'ebook',
@@ -210,7 +218,7 @@ export default function NodeActivityPage() {
   if (loadError || !nodeData) return <p role="alert" className="p-8 text-center font-bold text-rose-700">{loadError || t('This activity is unavailable.', 'Aktivitas ini tidak tersedia.')}</p>
 
   return (
-    <div className={`${nodeData.type === 'quiz' ? 'app-screen-enter' : ''} mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-4 py-5 sm:px-6 sm:py-7`}>
+    <div className={`${nodeData.type === 'quiz' ? 'app-screen-enter' : ''} mx-auto flex min-h-dvh w-full ${nodeData.type === 'lesson' ? 'max-w-4xl' : 'max-w-2xl'} flex-col px-4 py-5 sm:px-6 sm:py-7`}>
       <div className="mb-6">
         <div className="flex items-center justify-between gap-4">
           {nodeData.type === 'quiz' ? (
@@ -222,7 +230,7 @@ export default function NodeActivityPage() {
                 <Heart className="h-5 w-5 fill-rose-500 text-rose-500" />
                 {unlimitedHearts && <InfinityIcon className="absolute h-3 w-3 stroke-[3] text-white" />}
               </span>
-              <span>{unlimitedHearts ? '∞' : hearts}</span>
+              {!unlimitedHearts && <span>{hearts}</span>}
             </div>
           ) : <span />}
           <button
@@ -234,14 +242,22 @@ export default function NodeActivityPage() {
             <X className="h-5 w-5 stroke-[2.5]" />
           </button>
         </div>
-        <div className={`mt-4 ${nodeData.type === 'quiz' && !nodeData.isBoss ? 'hidden md:block' : ''}`}>
-          <span className="inline-flex rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide text-indigo-600 md:order-2">
-            {nodeData.type === 'lesson'
-              ? t('Lesson', 'Pelajaran')
-              : nodeData.type === 'treasure'
-                ? t('Treasure', 'Harta')
-                : nodeData.isBoss ? t('Final boss', 'Bos akhir') : t('Quiz', 'Kuis')}
-          </span>
+          <div className={`mt-4 ${nodeData.type === 'quiz' && !nodeData.isBoss ? 'hidden md:block' : ''}`}>
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-50 px-3 py-1 text-[11px] font-extrabold uppercase tracking-wide text-indigo-600 md:order-2">
+              {nodeData.type === 'lesson' ? (
+                <span>{t('Lesson', 'Pelajaran')}</span>
+              ) : nodeData.type === 'treasure' ? (
+                <span>{t('Treasure', 'Harta')}</span>
+              ) : (
+                <>
+                  {nodeData.isBoss ? (
+                    <span>{t('Final boss', 'Bos akhir')}</span>
+                  ) : (
+                    <span>{t('Quiz', 'Kuis')}</span>
+                  )}
+                </>
+              )}
+            </span>
           {nodeData.type !== 'treasure' && nodeData.title && (
             <h1 className="mt-1 truncate text-xl font-extrabold leading-tight text-slate-700">{nodeData.title}</h1>
           )}
@@ -678,19 +694,14 @@ function LessonActivity({
     <div className="space-y-6">
       <div className="bg-white border-2 border-slate-100 rounded-3xl p-6 sm:p-8 shadow-sm">
         {content.kind === 'text' && (
-          <div className="whitespace-pre-line font-medium text-slate-700 leading-relaxed text-lg">
-            <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-              {content.value}
+          <div className="curriculum-markdown font-medium text-slate-700 text-lg">
+            <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+              {normalizeMarkdownMath(content.value)}
             </ReactMarkdown>
           </div>
         )}
         {content.kind === 'poster' && (
-          <img
-            src={content.src}
-            alt={content.alt}
-            crossOrigin="anonymous"
-            className="block w-full h-auto rounded-2xl"
-          />
+          <ImageMaterialPreview src={content.src} alt={content.alt} t={t} />
         )}
         {content.kind === 'material' && (
           <div>
@@ -700,6 +711,11 @@ function LessonActivity({
                 title={t('PDF material', 'Materi PDF')}
                 t={t}
                 onTextExtracted={setPdfText}
+              />
+            ) : content.youtubeEmbedUrl ? (
+              <YouTubeEmbed
+                src={content.youtubeEmbedUrl}
+                title={t('YouTube video', 'Video YouTube')}
               />
             ) : content.format !== 'file' ? (
               <iframe
@@ -1048,14 +1064,6 @@ function QuizActivity({
 
       <div className={`rounded-3xl border-2 p-6 shadow-sm ${isBoss ? 'border-rose-200 bg-rose-50' : 'border-slate-100 bg-white'}`}>
         <div className="mb-4 flex items-center justify-between gap-3">
-          <span className="inline-flex items-center gap-2 rounded-full border border-rose-100 bg-white px-3 py-1.5 text-sm font-extrabold text-rose-500">
-            <Heart className="h-4 w-4 fill-rose-500" /> {superMode ? '∞' : hearts}
-          </span>
-          {isBoss && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-100 px-3 py-1.5 text-xs font-extrabold uppercase tracking-wide text-rose-700">
-              <Swords className="h-4 w-4" /> {t('Final boss', 'Bos akhir')}
-            </span>
-          )}
           {!superMode && hearts <= 0 && (
             <button
               type="button"
@@ -1067,11 +1075,12 @@ function QuizActivity({
             </button>
           )}
         </div>
-        <h2 className="text-xl font-extrabold text-slate-700 mb-6">
-          <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-            {currentQuestion.prompt}
+        <QuestionImage src={currentQuestion.imageUrl} alt={currentQuestion.imageAlt} />
+        <div className="curriculum-markdown curriculum-markdown-compact mb-6 text-xl font-extrabold text-slate-700">
+          <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+            {normalizeMarkdownMath(currentQuestion.prompt)}
           </ReactMarkdown>
-        </h2>
+        </div>
         {correctOptionIds.length > 1 && (
           <p className="mb-4 text-sm font-bold text-slate-500">
             {t('Select all correct answers.', 'Pilih semua jawaban yang benar.')}
@@ -1103,11 +1112,11 @@ function QuizActivity({
                 <span className="w-8 h-8 shrink-0 rounded-lg border-2 border-current/20 flex items-center justify-center text-sm">
                   {index + 1}
                 </span>
-                <span className="flex-1">
-                  <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                    {option.text}
+                <div className="curriculum-markdown curriculum-markdown-compact min-w-0 flex-1">
+                  <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                    {normalizeAnswerOptionMath(option.text)}
                   </ReactMarkdown>
-                </span>
+                </div>
                 {isChecked && correctOptionIds.includes(option.id) && <CheckCircle2 className="w-5 h-5 text-emerald-600" />}
                 {isChecked && isSelected && !correctOptionIds.includes(option.id) && <XCircle className="w-5 h-5 text-rose-600" />}
               </button>
@@ -1148,7 +1157,19 @@ function QuizActivity({
           </div>
           {!isAnswerCorrect && (
             <p className="mt-1 ml-7 text-sm font-semibold">
-              {t('Correct answers:', 'Jawaban yang benar:')} {currentQuestion.options.filter((option) => correctOptionIds.includes(option.id)).map((option) => option.text).join(', ')}
+              {t('Correct answers:', 'Jawaban yang benar:')}{' '}
+              <ReactMarkdown
+                remarkPlugins={[remarkMath]}
+                rehypePlugins={[rehypeKatex]}
+                components={{ p: ({ children }) => <span>{children}</span> }}
+              >
+                {normalizeAnswerOptionMath(
+                  currentQuestion.options
+                    .filter((option) => correctOptionIds.includes(option.id))
+                    .map((option) => option.text)
+                    .join(', ')
+                )}
+              </ReactMarkdown>
             </p>
           )}
         </div>

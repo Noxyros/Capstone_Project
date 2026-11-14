@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { RoadmapNodeType } from '@prisma/client'
 import { authenticateAppUser } from '@/src/lib/auth/server'
+import { syncHeartRegeneration } from '@/src/lib/gameEconomy'
 import { prisma } from '@/src/lib/prisma'
 
 export async function POST(request: Request) {
@@ -30,9 +31,29 @@ export async function POST(request: Request) {
         },
         select: { id: true },
       }),
-      prisma.user.findUnique({
-        where: { id: authentication.appUser.id },
-        select: { hearts: true, superMode: true },
+      prisma.$transaction(async (transaction) => {
+        const user = await transaction.user.findUnique({
+          where: { id: authentication.appUser.id },
+          select: { hearts: true, maxHearts: true, heartRefillAt: true, superMode: true },
+        })
+        if (!user) return null
+
+        const { hearts, heartRefillAt } = syncHeartRegeneration(
+          user.hearts,
+          user.maxHearts,
+          user.heartRefillAt,
+        )
+        if (
+          hearts !== user.hearts
+          || heartRefillAt?.getTime() !== user.heartRefillAt?.getTime()
+        ) {
+          await transaction.user.update({
+            where: { id: authentication.appUser.id },
+            data: { hearts, heartRefillAt },
+          })
+        }
+
+        return { hearts, superMode: user.superMode }
       }),
     ])
     if (!node) return NextResponse.json({ error: 'This quiz is unavailable.' }, { status: 404 })

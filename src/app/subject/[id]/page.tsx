@@ -45,7 +45,10 @@ export default function SubjectDetailPage() {
   }, [fetchSubjects])
 
   const subject = subjects.find((item) => item.id === subjectId)
-  const firstAvailableChapter = subject?.chapters.find((chapter) => chapter.chaptersStatus !== 'locked')
+  const subjectOpen = Boolean(subject?.isPublished)
+  const firstAvailableChapter = subjectOpen
+    ? subject?.chapters.find((chapter) => chapter.chaptersStatus !== 'locked')
+    : undefined
 
   useEffect(() => {
     if (firstAvailableChapter) router.prefetch(`/chapter/${firstAvailableChapter.id}`)
@@ -70,15 +73,15 @@ export default function SubjectDetailPage() {
       <div className="space-y-3">
         {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-700">{error}</p>}
         {subject?.chapters.map((chapter) => {
-          const isCompleted = chapter.chaptersStatus === 'completed'
-          const isInProgress = chapter.chaptersStatus === 'in_progress'
-          const isLocked = chapter.chaptersStatus === 'locked'
+          const isCompleted = chapter.nodes.length > 0 && chapter.nodes.every((node) => node.status === 'completed')
+          const isInProgress = !isCompleted && chapter.chaptersStatus === 'in_progress'
+          const isLocked = !subjectOpen || chapter.chaptersStatus === 'locked'
 
           return (
             <div
               key={chapter.id}
               className={`bg-white border-2 border-b-4 rounded-2xl p-5 flex items-center justify-between transition-all ${
-                isLocked ? 'border-slate-200 opacity-60' : isInProgress ? 'border-indigo-500 shadow-sm' : 'border-slate-200'
+                isLocked ? 'border-slate-200 opacity-60' : isInProgress ? 'border-indigo-500 shadow-sm' : 'border-emerald-500 shadow-sm'
               }`}
             >
               <div className="flex items-center gap-4">
@@ -101,8 +104,8 @@ export default function SubjectDetailPage() {
                     href={`/chapter/${chapter.id}`}
                     onPointerEnter={() => router.prefetch(`/chapter/${chapter.id}`)}
                     onFocus={() => router.prefetch(`/chapter/${chapter.id}`)}
-                    className={`flex items-center gap-2 px-4 py-2 rounded-xl font-extrabold text-xs uppercase tracking-wide border-b-4 ${
-                      isInProgress ? 'bg-indigo-600 text-white border-indigo-800' : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                    className={`flex shrink-0 items-center gap-2 rounded-xl border-b-4 px-4 py-2 text-xs font-extrabold uppercase tracking-wide ${
+                      isInProgress ? 'border-indigo-800 bg-indigo-600 text-white' : 'border-emerald-700 bg-emerald-500 text-white'
                     }`}
                   >
                     <Play className="w-4 h-4 fill-current" />

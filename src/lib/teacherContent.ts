@@ -7,6 +7,8 @@ export type CurriculumOption = {
 export type CurriculumQuestion = {
   id: string
   prompt: string
+  imageUrl?: string | null
+  imageAlt?: string | null
   allowsMultipleAnswers?: boolean
   options: CurriculumOption[]
 }
@@ -35,6 +37,36 @@ export function getCurriculumResourceFormat(resourceUrl: string): CurriculumReso
   return 'document'
 }
 
+export function getYouTubeEmbedUrl(resourceUrl: string): string | null {
+  let url: URL
+  try {
+    url = new URL(resourceUrl)
+  } catch (error) {
+    if (error instanceof TypeError) return null
+    throw error
+  }
+
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return null
+
+  const host = url.hostname.toLowerCase()
+  const pathSegments = url.pathname.split('/').filter(Boolean)
+  let videoId: string | null = null
+
+  if (host === 'youtu.be' || host === 'www.youtu.be') {
+    videoId = pathSegments[0] ?? null
+  } else if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com'].includes(host)) {
+    if (url.pathname === '/watch') {
+      videoId = url.searchParams.get('v')
+    } else if (['embed', 'shorts', 'live'].includes(pathSegments[0] ?? '')) {
+      videoId = pathSegments[1] ?? null
+    }
+  }
+
+  return videoId && /^[\w-]{11}$/.test(videoId)
+    ? `https://www.youtube-nocookie.com/embed/${videoId}`
+    : null
+}
+
 export type CurriculumSubmodule = {
   id: string
   title: string
@@ -48,7 +80,7 @@ export type CurriculumChapter = {
   title: string
   order: number
   summary: string
-  chaptersStatus: 'completed' | 'in_progress' | 'locked'
+  chaptersStatus: 'in_progress' | 'locked'
   submodules: CurriculumSubmodule[]
   nodes: CurriculumNode[]
 }
@@ -88,6 +120,7 @@ export type CurriculumSubject = {
   grade: number
   icon: string
   color: SubjectColor
+  isPublished: boolean
   chapters: CurriculumChapter[]
 }
 

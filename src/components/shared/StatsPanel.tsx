@@ -121,6 +121,8 @@ export default function StatsPanel() {
   const gemBoostActive = gemBoostSecondsLeft > 0
 
   const rootRef = useRef<HTMLDivElement>(null)
+  const initialHeartSyncDone = useRef(false)
+  const lastHeartSyncDeadline = useRef<string | null>(null)
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60)
@@ -141,6 +143,19 @@ export default function StatsPanel() {
     const interval = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(interval)
   }, [gemBoostActive, superMode, xpBoostActive, heartRefillAtSeconds])
+
+  useEffect(() => {
+    if (initialHeartSyncDone.current) return
+    initialHeartSyncDone.current = true
+    void syncHearts()
+  }, [syncHearts])
+
+  useEffect(() => {
+    if (!heartRefillAt || heartRefillAtSeconds > 0 || hearts >= maxHearts) return
+    if (lastHeartSyncDeadline.current === heartRefillAt) return
+    lastHeartSyncDeadline.current = heartRefillAt
+    void syncHearts()
+  }, [heartRefillAt, heartRefillAtSeconds, hearts, maxHearts, syncHearts])
 
   const toggle = (id: string) => setTimeout(() => setOpen((prev) => (prev === id ? null : id)), 0)
   const onStatClick = (id: string) => { if (window.innerWidth < 1024) toggle(id) }

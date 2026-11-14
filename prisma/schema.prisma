@@ -73,6 +73,7 @@ model User {
   dailyChallenges   DailyChallenge[]
   dailyChallengeQuestions DailyChallengeQuestion[]
   dailyChallengeAnswers DailyChallengeAnswer[]
+  practiceBankAttempts PracticeBankAttempt[]
   nodeProgress       NodeProgress[]
   rewardEvents       RewardEvent[]
   quizAttempts       QuizAttempt[]
@@ -186,6 +187,8 @@ model DailyChallengeQuestion {
   subjectName      String
   gradeLevel       Int
   prompt           String
+  imageUrl         String?
+  imageAlt         String?
   challenge        DailyChallenge        @relation(fields: [challengeId], references: [id], onDelete: Cascade)
   user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   options          DailyChallengeOption[]
@@ -229,6 +232,7 @@ model Subject {
   name        String
   icon        String?
   color       String              @default("blue")
+  isPublished Boolean             @default(true)
   gradeId     String
   createdById String?
   grade       Grade               @relation(fields: [gradeId], references: [id], onDelete: Cascade)
@@ -263,9 +267,24 @@ model Submodule {
   chapterId   String
   chapter     Chapter       @relation(fields: [chapterId], references: [id], onDelete: Cascade)
   nodes       RoadmapNode[]
+  practiceBankAttempts PracticeBankAttempt[]
 
   @@unique([chapterId, order])
   @@index([chapterId])
+}
+
+model PracticeBankAttempt {
+  id          String    @id @default(uuid())
+  userId      String
+  submoduleId String
+  questionIds String[]
+  expiresAt   DateTime
+  completedAt DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  submodule   Submodule @relation(fields: [submoduleId], references: [id], onDelete: Cascade)
+
+  @@index([userId, submoduleId, completedAt, expiresAt], map: "PracticeBankAttempt_user_submodule_status_expiry_idx")
 }
 
 model RoadmapNode {
@@ -296,6 +315,8 @@ model RoadmapNode {
 model Question {
   id          String       @id @default(uuid())
   prompt      String
+  imageUrl    String?
+  imageAlt    String?
   nodeId      String
   node        RoadmapNode  @relation(fields: [nodeId], references: [id], onDelete: Cascade)
   options     Option[]

@@ -5,12 +5,13 @@ import { createPortal } from 'react-dom'
 import {
   AlertCircle, BookOpen, Check, CheckCircle2, ChevronDown, CircleHelp, FilePlus2,
   FileText, Gamepad2, Gift, GraduationCap, LoaderCircle, LockKeyhole,
-  MoveDown, MoveUp, Play, Plus, Save, Sparkles, Swords, Trash2, UploadCloud,
+  MoveDown, MoveRight, MoveUp, Play, Plus, Save, Sparkles, Swords, Trash2, UploadCloud,
 } from 'lucide-react'
 import { useLanguage } from '@/src/context/LanguageContext'
 import {
   createCurriculumId,
   getCurriculumResourceFormat,
+  getYouTubeEmbedUrl,
   SUBJECT_ICON_OPTIONS,
   SUBJECT_COLOR_OPTIONS,
   type CurriculumChapter,
@@ -20,15 +21,29 @@ import {
   type CurriculumSubject,
 } from '@/src/lib/teacherContent'
 import { loadCurriculum, saveCurriculum } from '@/src/lib/curriculumClient'
+import { normalizeAnswerOptionMath, normalizeMarkdownMath } from '@/src/lib/markdownMath'
 import { useAuth } from '@/src/context/AuthContext'
 import { getCachedCurriculum } from '@/src/lib/curriculumClient'
 import { PdfMaterialPreview } from '@/src/components/shared/PdfMaterialPreview'
+import QuestionImage from '@/src/components/shared/QuestionImage'
+import { YouTubeEmbed } from '@/src/components/shared/YouTubeEmbed'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 
 const inputClass = 'w-full rounded-xl border-2 border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 outline-none focus:border-indigo-400'
 const labelClass = 'mb-1.5 block text-xs font-extrabold uppercase tracking-wide text-slate-500'
+const secondaryAddButtonClass = 'inline-flex items-center justify-center gap-1 rounded-xl bg-indigo-50 px-3 py-2 text-sm font-extrabold text-indigo-700 transition-colors hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100'
+
+type TeacherConfirmation = {
+  title: string
+  message: string
+  confirmLabel: string
+  tone: 'danger' | 'warning'
+  onConfirm: () => void
+  onCancel?: () => void
+}
 
 // Renders Markdown paragraphs as plain inline content so ReactMarkdown never
 // emits a <p> inside another <p> (or forces a line break after a "1." label).
@@ -112,6 +127,8 @@ function isEmptyChapterDraft(chapter: CurriculumChapter): boolean {
     && !node.resourceUrl.trim()
     && node.questions.length === 1
     && !node.questions[0]?.prompt.trim()
+    && !node.questions[0]?.imageUrl
+    && !node.questions[0]?.imageAlt
     && node.questions[0]?.options.length === 4
     && node.questions[0].options.every((option) => !option.text.trim() && !option.isCorrect)
   )
@@ -124,6 +141,7 @@ function makeSubject(): CurriculumSubject {
     grade: 0,
     icon: 'book',
     color: 'blue',
+    isPublished: true,
     chapters: [makeChapter(1)],
   }
 }
@@ -203,38 +221,91 @@ function isGeneratedChapterDraft(value: unknown): value is GeneratedChapterDraft
   if (
     typeof draft.chapterTitle !== 'string'
     || !draft.chapterTitle.trim()
+    || draft.chapterTitle.length > 160
     || typeof draft.summary !== 'string'
     || !draft.summary.trim()
+    || draft.summary.length > 2_000
     || !Array.isArray(draft.nodes)
     || draft.nodes.length < 3
-    || draft.nodes.length > 7
+    || draft.nodes.length > 13
   ) return false
 
-  return draft.nodes.every((value) => {
+  let lessonCount = 0
+  let quizCount = 0
+  let treasureCount = 0
+  let bossCount = 0
+  let hasActiveLesson = false
+  let quizzesInLessonBlock = 0
+  for (const [index, value] of draft.nodes.entries()) {
     if (typeof value !== 'object' || value === null) return false
     const node = value as Record<string, unknown>
     if (
       typeof node.title !== 'string'
       || !node.title.trim()
-      || (node.type !== 'lesson' && node.type !== 'quiz')
+      || node.title.length > 160
+      || (node.type !== 'lesson' && node.type !== 'quiz' && node.type !== 'treasure' && node.type !== 'boss')
       || typeof node.content !== 'string'
+      || node.content.length > 12_000
       || !Array.isArray(node.questions)
     ) return false
 
-    return node.questions.every((value) => {
-      if (typeof value !== 'object' || value === null) return false
-      const question = value as Record<string, unknown>
-      return typeof question.prompt === 'string'
-        && Boolean(question.prompt.trim())
-        && Array.isArray(question.options)
-        && question.options.length === 4
-        && question.options.every((option) => typeof option === 'string' && Boolean(option.trim()))
-        && typeof question.correctIndex === 'number'
-        && Number.isInteger(question.correctIndex)
-        && question.correctIndex >= 0
-        && question.correctIndex < 4
-    })
-  })
+    if (node.type === 'lesson') {
+      if (hasActiveLesson && quizzesInLessonBlock === 0) return false
+      if (lessonCount >= 3) return false
+      lessonCount += 1
+      hasActiveLesson = true
+      quizzesInLessonBlock = 0
+      if (!node.content.trim() || node.questions.length !== 0) return false
+    } else if (node.type === 'quiz') {
+      if (!hasActiveLesson || node.content.trim() || node.questions.length < 3 || node.questions.length > 10) return false
+      quizCount += 1
+      quizzesInLessonBlock += 1
+    } else if (node.type === 'treasure') {
+      if (!hasActiveLesson || quizzesInLessonBlock === 0 || treasureCount >= 2) return false
+      treasureCount += 1
+      hasActiveLesson = false
+      quizzesInLessonBlock = 0
+      if (node.content.trim() || node.questions.length !== 0) return false
+    } else {
+      if (
+        index !== draft.nodes.length - 1
+        || bossCount > 0
+        || lessonCount === 0
+        || quizCount === 0
+        || (hasActiveLesson && quizzesInLessonBlock === 0)
+        || node.content.trim()
+        || node.questions.length < 3
+        || node.questions.length > 10
+      ) return false
+      bossCount += 1
+      hasActiveLesson = false
+    }
+
+    if (node.type === 'quiz' || node.type === 'boss') {
+      if (!node.questions.every((value) => {
+        if (typeof value !== 'object' || value === null) return false
+        const question = value as Record<string, unknown>
+        return typeof question.prompt === 'string'
+          && Boolean(question.prompt.trim())
+          && question.prompt.length <= 1_000
+          && Array.isArray(question.options)
+          && question.options.length === 4
+          && question.options.every((option) => typeof option === 'string' && Boolean(option.trim()) && option.length <= 500)
+          && new Set(question.options).size === question.options.length
+          && typeof question.correctIndex === 'number'
+          && Number.isInteger(question.correctIndex)
+          && question.correctIndex >= 0
+          && question.correctIndex < 4
+      })) return false
+    }
+  }
+
+  return lessonCount >= 1
+    && lessonCount <= 3
+    && quizCount >= 1
+    && quizCount <= 7
+    && treasureCount <= 2
+    && bossCount === 1
 }
 
 type GeneratedQuestionDraft = {
@@ -245,7 +316,7 @@ type GeneratedQuestionDraft = {
 
 type GeneratedNodeDraft = {
   title: string
-  type: 'lesson' | 'quiz'
+  type: 'lesson' | 'quiz' | 'treasure' | 'boss'
   content: string
   questions: GeneratedQuestionDraft[]
 }
@@ -269,6 +340,7 @@ export default function TeacherPage() {
   const [selectedChapterId, setSelectedChapterId] = useState('')
   const [selectedSubmoduleId, setSelectedSubmoduleId] = useState('')
   const [selectedNodeId, setSelectedNodeId] = useState('')
+  const [moveDestinationChapterId, setMoveDestinationChapterId] = useState('')
   const [isPreview, setIsPreview] = useState(false)
   const [isRoadmapGeneratorOpen, setIsRoadmapGeneratorOpen] = useState(false)
   const [materialFile, setMaterialFile] = useState<File | null>(null)
@@ -281,6 +353,7 @@ export default function TeacherPage() {
   const [curriculumReady, setCurriculumReady] = useState(cachedSubjects !== null)
   const [isSaving, setIsSaving] = useState(false)
   const [portalReady, setPortalReady] = useState(false)
+  const [confirmation, setConfirmation] = useState<TeacherConfirmation | null>(null)
   const [toast, setToast] = useState<{ visible: boolean; message: string; type: 'success' | 'error' | 'warning' }>({
     visible: false,
     message: '',
@@ -298,6 +371,18 @@ export default function TeacherPage() {
   useEffect(() => {
     setPortalReady(true)
   }, [])
+
+  useEffect(() => {
+    if (!confirmation) return
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      const onCancel = confirmation.onCancel
+      setConfirmation(null)
+      onCancel?.()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [confirmation])
 
   useEffect(() => {
     let active = true
@@ -344,6 +429,10 @@ export default function TeacherPage() {
     (node.submoduleId ?? '') === selectedSubmoduleId) ?? []
   const selectedSubmodule = selectedChapter?.submodules.find((submodule) => submodule.id === selectedSubmoduleId)
   const selectedNode = selectedNodes.find((node) => node.id === selectedNodeId)
+  const moveDestinationChapters = selectedSubject?.chapters.filter((chapter) => chapter.id !== selectedChapterId) ?? []
+  const effectiveMoveDestinationChapterId = moveDestinationChapters.some((chapter) => chapter.id === moveDestinationChapterId)
+    ? moveDestinationChapterId
+    : moveDestinationChapters[0]?.id ?? ''
 
   const hasUnsavedChanges = JSON.stringify(subjects) !== JSON.stringify(savedSubjects)
     || subjects.some((subject) => {
@@ -359,6 +448,14 @@ export default function TeacherPage() {
 
   const saveChanges = async () => {
     if (!hasUnsavedChanges || isSaving) return
+    if (subjects.some((subject) => subject.chapters.some((chapter) => chapter.nodes.some((node) =>
+      node.questions.some((question) => question.imageUrl && !question.imageAlt?.trim()))))) {
+      showToast(
+        t('Add a description to every attached question image before saving.', 'Tambahkan deskripsi untuk setiap gambar soal sebelum menyimpan.'),
+        'warning',
+      )
+      return
+    }
     if (subjects.some((subject) => {
       const gradeDraft = gradeDrafts[subject.id] ?? (subject.grade === 0 ? '' : String(subject.grade))
       return !/^\d+$/.test(gradeDraft) || Number(gradeDraft) < 1 || Number(gradeDraft) > 12
@@ -368,10 +465,26 @@ export default function TeacherPage() {
     }
     setIsSaving(true)
     try {
-      await saveCurriculum(subjects)
-      setSavedSubjects(subjects)
+      const allRenumbered = subjects.map((subject) => ({
+        ...subject,
+        chapters: subject.chapters.map((chapter, index) => ({
+          ...chapter,
+          order: index + 1,
+        })),
+      }))
+      setSubjects(allRenumbered)
+      const { cleanupWarning } = await saveCurriculum(allRenumbered)
+      setSavedSubjects(allRenumbered)
       setGradeDrafts({})
-      showToast(t('Curriculum saved successfully!', 'Kurikulum berhasil disimpan!'), 'success')
+      showToast(
+        cleanupWarning
+          ? t(
+            'Curriculum saved, but some old files could not be removed from storage.',
+            'Kurikulum tersimpan, tetapi sebagian file lama tidak dapat dihapus dari penyimpanan.',
+          )
+          : t('Curriculum saved successfully!', 'Kurikulum berhasil disimpan!'),
+        cleanupWarning ? 'warning' : 'success',
+      )
     } catch (saveError) {
       console.error('Failed to save curriculum changes.', saveError)
       showToast(getSaveErrorMessage(saveError, t), 'error')
@@ -382,24 +495,15 @@ export default function TeacherPage() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ctrl+Enter or Cmd+Enter to save anywhere
-      if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-        event.preventDefault()
+      // Enter key to blur and save (works from any focused element except textarea)
+      if (event.key === 'Enter') {
+        const target = event.target as HTMLElement | null
+        if (target && target.tagName === 'TEXTAREA') return
+        target?.blur()
         if (hasUnsavedChanges && !isSaving) {
           void saveChanges()
         }
         return
-      }
-
-      // Enter key in single-line input to blur and save
-      if (event.key === 'Enter') {
-        const target = event.target as HTMLElement | null
-        if (target && target.tagName === 'INPUT') {
-          target.blur()
-          if (hasUnsavedChanges && !isSaving) {
-            void saveChanges()
-          }
-        }
       }
     }
 
@@ -448,37 +552,66 @@ export default function TeacherPage() {
         const code = typeof result === 'object' && result !== null && 'code' in result && typeof result.code === 'string'
           ? result.code
           : ''
-        const message = code === 'not_configured'
-          ? t('The roadmap generator is not set up yet. Please contact your administrator.', 'Generator peta belajar belum disiapkan. Hubungi administrator.')
-          : code === 'invalid_api_key'
-            ? t('The roadmap generator could not authenticate. Please contact your administrator.', 'Generator peta belajar tidak dapat melakukan autentikasi. Hubungi administrator.')
-            : code === 'provider_rate_limited' || code === 'rate_limited' || response.status === 429
-              ? t('The generator is busy or at its request limit. Wait a little and try again.', 'Generator sedang sibuk atau mencapai batas permintaan. Tunggu sebentar lalu coba lagi.')
-              : code === 'provider_busy'
-                ? t('The generator is experiencing high demand. Please try again shortly.', 'Generator sedang ramai digunakan. Silakan coba lagi sebentar lagi.')
-              : code === 'file_too_large' || code === 'material_too_large'
-                ? t('The source is too large. Choose a file under 12 MB or paste shorter text.', 'Materi terlalu besar. Pilih file di bawah 12 MB atau tempel teks yang lebih singkat.')
-                : code === 'unsupported_file'
-                  ? t('Use a PDF, text file, or supported image file.', 'Gunakan file PDF, teks, atau gambar yang didukung.')
-                  : code === 'invalid_file' || code === 'invalid_text_file' || code === 'invalid_material'
-                    ? t('This file could not be read. Check that it is a valid, non-empty PDF, text file, or supported image.', 'File ini tidak dapat dibaca. Pastikan file PDF, teks, atau gambar valid dan tidak kosong.')
-                    : code === 'model_unavailable'
-                      ? t('The generator is temporarily unavailable. Please contact your administrator.', 'Generator sedang tidak tersedia. Hubungi administrator.')
-                      : code === 'provider_request_rejected'
-                        ? t('The AI service rejected this request. Try a different or smaller source file.', 'Layanan AI menolak permintaan ini. Coba file sumber lain atau yang lebih kecil.')
-                        : code === 'timeout'
-                          ? t('Generation took too long. Try a shorter source.', 'Proses terlalu lama. Coba gunakan materi yang lebih singkat.')
-                          : code === 'empty_response' || code === 'invalid_response' || code === 'invalid_generated_json' || code === 'invalid_generated_draft'
-                            ? t('The generator could not create a complete learning path from this source. Try clearer or shorter material.', 'Generator tidak dapat membuat peta belajar yang lengkap dari materi ini. Coba materi yang lebih jelas atau lebih singkat.')
-                            : code === 'connection_error'
-                              ? t('Could not connect to the generator. Check your connection and try again.', 'Tidak dapat terhubung ke generator. Periksa koneksi lalu coba lagi.')
-                              : code === 'provider_error'
-                                ? t('The generator service encountered an error. Please try again shortly.', 'Layanan generator mengalami kendala. Silakan coba lagi nanti.')
-                                : t('Could not generate a roadmap from this material. Check the source and try again.', 'Peta belajar tidak dapat dibuat dari materi ini. Periksa sumber lalu coba lagi.')
+        const retryAfterSeconds = typeof result === 'object'
+          && result !== null
+          && 'retryAfterSeconds' in result
+          && typeof result.retryAfterSeconds === 'number'
+          && result.retryAfterSeconds > 0
+          ? Math.ceil(result.retryAfterSeconds)
+          : null
+        const fallbackMessages: Record<string, string> = {
+          fallback_not_configured: t('Gemini is at its request limit and the Groq fallback is not configured.', 'Gemini sedang mencapai batas permintaan dan fallback Groq belum dikonfigurasi.'),
+          fallback_invalid_api_key: t('Groq rejected its API key. Please check the Groq configuration.', 'Groq menolak kunci API-nya. Periksa konfigurasi Groq.'),
+          fallback_model_unavailable: t('The configured Groq model is unavailable. Please check the Groq model setting.', 'Model Groq yang dipilih tidak tersedia. Periksa pengaturan model Groq.'),
+          fallback_unsupported_source: t('Gemini is at its limit. Groq fallback supports text and JPEG, PNG, or WebP images; try again later or use a supported source.', 'Gemini sedang mencapai batasnya. Fallback Groq mendukung teks dan gambar JPEG, PNG, atau WebP; coba lagi nanti atau gunakan sumber yang didukung.'),
+          fallback_payload_too_large: t('The Groq fallback could not accept this large source. Use shorter text or a smaller image, or wait for Gemini to become available.', 'Fallback Groq tidak dapat menerima sumber sebesar ini. Gunakan teks yang lebih singkat atau gambar lebih kecil, atau tunggu Gemini tersedia kembali.'),
+          fallback_invalid_output: t('Groq could not produce a roadmap in the required format. Try again or select a different Groq model.', 'Groq tidak dapat menghasilkan peta belajar dengan format yang diperlukan. Coba lagi atau pilih model Groq lain.'),
+          fallback_request_rejected: t('Groq rejected the fallback request. Check the source material or Groq model configuration.', 'Groq menolak permintaan fallback. Periksa materi sumber atau konfigurasi model Groq.'),
+          fallback_token_budget_exceeded: t("This source and roadmap exceed Groq's per-minute token budget. Use shorter source material or select a model with a higher limit.", 'Materi dan peta belajar ini melebihi batas token per menit Groq. Gunakan materi sumber yang lebih singkat atau pilih model dengan batas yang lebih tinggi.'),
+          fallback_rate_limited: retryAfterSeconds
+            ? t(`Gemini and Groq rate-limited this Roadmap request. Try again in about ${retryAfterSeconds} seconds; tutor chat may still work.`, `Gemini dan Groq membatasi permintaan Roadmap ini. Coba lagi sekitar ${retryAfterSeconds} detik; chat tutor mungkin tetap berfungsi.`)
+            : t('Gemini and Groq rate-limited this Roadmap request. Tutor chat may still work because limits vary by request and time window.', 'Gemini dan Groq membatasi permintaan Roadmap ini. Chat tutor mungkin tetap berfungsi karena batas bergantung pada permintaan dan periode waktu.'),
+          fallback_provider_error: t('Gemini reached its request limit and Groq could not generate the roadmap. Please try again shortly.', 'Gemini mencapai batas permintaan dan Groq tidak dapat membuat peta belajar. Silakan coba lagi sebentar lagi.'),
+          invalid_generated_draft: t('The generated roadmap did not match the required lesson, quiz, and boss structure. Please try again.', 'Peta belajar yang dihasilkan tidak sesuai dengan struktur pelajaran, kuis, dan boss. Silakan coba lagi.'),
+        }
+        const message = fallbackMessages[code] ?? (
+          code === 'not_configured'
+            ? t('The roadmap generator is not set up yet. Please contact your administrator.', 'Generator peta belajar belum disiapkan. Hubungi administrator.')
+            : code === 'invalid_api_key'
+              ? t('The roadmap generator could not authenticate. Please contact your administrator.', 'Generator peta belajar tidak dapat melakukan autentikasi. Hubungi administrator.')
+              : code === 'provider_rate_limited' || code === 'rate_limited' || response.status === 429
+                ? t('The generator is busy or at its request limit. Wait a little and try again.', 'Generator sedang sibuk atau mencapai batas permintaan. Tunggu sebentar lalu coba lagi.')
+                : code === 'provider_busy'
+                  ? t('The generator is experiencing high demand. Please try again shortly.', 'Generator sedang ramai digunakan. Silakan coba lagi sebentar lagi.')
+                  : code === 'file_too_large' || code === 'material_too_large'
+                    ? t('The source is too large. Choose a file under 12 MB or paste shorter text.', 'Materi terlalu besar. Pilih file di bawah 12 MB atau tempel teks yang lebih singkat.')
+                    : code === 'unsupported_file'
+                      ? t('Use a PDF, text file, or supported image file.', 'Gunakan file PDF, teks, atau gambar yang didukung.')
+                      : code === 'invalid_file' || code === 'invalid_text_file' || code === 'invalid_material'
+                        ? t('This file could not be read. Check that it is a valid, non-empty PDF, text file, or supported image.', 'File ini tidak dapat dibaca. Pastikan file PDF, teks, atau gambar valid dan tidak kosong.')
+                        : code === 'model_unavailable'
+                          ? t('The generator is temporarily unavailable. Please contact your administrator.', 'Generator sedang tidak tersedia. Hubungi administrator.')
+                          : code === 'provider_request_rejected'
+                            ? t('The AI service rejected this request. Try a different or smaller source file.', 'Layanan AI menolak permintaan ini. Coba file sumber lain atau yang lebih kecil.')
+                            : code === 'timeout'
+                              ? t('Generation took too long. Try a shorter source.', 'Proses terlalu lama. Coba gunakan materi yang lebih singkat.')
+                              : code === 'empty_response' || code === 'invalid_response' || code === 'invalid_generated_json' || code === 'invalid_generated_draft'
+                                ? t('The generator could not create a complete learning path from this source. Try clearer or shorter material.', 'Generator tidak dapat membuat peta belajar yang lengkap dari materi ini. Coba materi yang lebih jelas atau lebih singkat.')
+                                : code === 'connection_error'
+                                  ? t('Could not connect to the generator. Check your connection and try again.', 'Tidak dapat terhubung ke generator. Periksa koneksi lalu coba lagi.')
+                                  : code === 'provider_error'
+                                    ? t('The generator service encountered an error. Please try again shortly.', 'Layanan generator mengalami kendala. Silakan coba lagi nanti.')
+                                    : t('Could not generate a roadmap from this material. Check the source and try again.', 'Peta belajar tidak dapat dibuat dari materi ini. Periksa sumber lalu coba lagi.')
+        )
         throw new Error(message)
       }
 
-      if (typeof result !== 'object' || result === null || !('draft' in result) || !isGeneratedChapterDraft(result.draft)) {
+      if (
+        typeof result !== 'object'
+        || result === null
+        || !('draft' in result)
+        || !isGeneratedChapterDraft(result.draft)
+      ) {
         throw new Error(t('The generator returned an invalid roadmap draft.', 'Generator mengirim draf peta belajar yang tidak valid.'))
       }
 
@@ -520,6 +653,9 @@ export default function TeacherPage() {
             isCorrect: index === question.correctIndex,
           })),
         })),
+        ...(node.type === 'treasure'
+          ? { rewardCurrency: 'gems' as const, rewardAmount: 25 }
+          : {}),
       })),
     }
 
@@ -578,10 +714,16 @@ export default function TeacherPage() {
   const addChapter = () => {
     if (!selectedSubject) return
     const chapter = makeChapter(selectedSubject.chapters.length + 1)
-    updateSubject(selectedSubject.id, (subject) => ({ ...subject, chapters: [...subject.chapters, chapter] }))
-    setSelectedChapterId(chapter.id)
-    setSelectedSubmoduleId(chapter.submodules[0].id)
-    setSelectedNodeId(chapter.nodes[0].id)
+    const next = renumberChapters(subjects, selectedSubject.id).map((subject) =>
+      subject.id === selectedSubject.id
+        ? { ...subject, chapters: [...subject.chapters, chapter] }
+        : subject
+    )
+    setSubjects(next)
+    const added = next.find((s) => s.id === selectedSubject.id)?.chapters.find((c) => c.id === chapter.id)
+    setSelectedChapterId(added?.id ?? '')
+    setSelectedSubmoduleId(added?.submodules[0]?.id ?? '')
+    setSelectedNodeId(added?.nodes[0]?.id ?? '')
   }
 
   const addSubmodule = () => {
@@ -596,12 +738,123 @@ export default function TeacherPage() {
     setSelectedNodeId('')
   }
 
+  const deleteSubmodule = () => {
+    if (!selectedSubject || !selectedChapter || !selectedSubmodule) return
+    if (selectedChapter.submodules.length === 1) {
+      showToast(t('Cannot delete the only submodule.', 'Tidak dapat menghapus submodul tunggal.'), 'warning')
+      return
+    }
+
+    setConfirmation({
+      title: t('Delete submodule?', 'Hapus submodul?'),
+      message: t(
+        `Delete "${selectedSubmodule.title}" and all its steps?`,
+        `Hapus "${selectedSubmodule.title}" dan semua langkahnya?`,
+      ),
+      confirmLabel: t('Delete', 'Hapus'),
+      tone: 'danger',
+      onConfirm: () => {
+        updateChapter(selectedSubject.id, selectedChapter.id, (chapter) => {
+          const remainingSubmodules = chapter.submodules.filter((submodule) => submodule.id !== selectedSubmodule.id)
+          const renumberedSubmodules = remainingSubmodules.map((submodule, index) => ({
+            ...submodule,
+            order: index + 1,
+          }))
+          const remainingNodes = chapter.nodes.filter((node) => node.submoduleId !== selectedSubmodule.id)
+          return {
+            ...chapter,
+            submodules: renumberedSubmodules,
+            nodes: remainingNodes,
+          }
+        })
+
+        const nextSubmodule = selectedChapter.submodules.find((submodule) => submodule.id !== selectedSubmodule.id)
+        setSelectedSubmoduleId(nextSubmodule?.id ?? '')
+        setSelectedNodeId(selectedChapter.nodes.find((node) => (node.submoduleId ?? '') === (nextSubmodule?.id ?? ''))?.id ?? '')
+      },
+    })
+  }
+
+  const applyMoveSubmoduleToChapter = (destinationChapterId: string) => {
+    if (!selectedSubject || !selectedChapter || !selectedSubmodule || !destinationChapterId) return
+    const destinationChapter = selectedSubject.chapters.find((chapter) => chapter.id === destinationChapterId)
+    if (!destinationChapter || destinationChapter.id === selectedChapter.id) return
+
+    const movedNodes = selectedChapter.nodes.filter((node) => node.submoduleId === selectedSubmodule.id)
+    const nextSubject = {
+      ...selectedSubject,
+      chapters: selectedSubject.chapters.map((chapter) => {
+        if (chapter.id === selectedChapter.id) {
+          const submodules = chapter.submodules
+            .filter((submodule) => submodule.id !== selectedSubmodule.id)
+            .map((submodule, index) => ({ ...submodule, order: index + 1 }))
+          return {
+            ...chapter,
+            submodules,
+            nodes: chapter.nodes.filter((node) => node.submoduleId !== selectedSubmodule.id),
+          }
+        }
+        if (chapter.id === destinationChapter.id) {
+          const order = Math.max(0, ...chapter.submodules.map((submodule) => submodule.order)) + 1
+          return {
+            ...chapter,
+            submodules: [...chapter.submodules, { ...selectedSubmodule, order }],
+            nodes: [...chapter.nodes, ...movedNodes],
+          }
+        }
+        return chapter
+      }),
+    }
+
+    updateDraft(subjects.map((subject) => subject.id === nextSubject.id ? nextSubject : subject))
+    setSelectedChapterId(destinationChapter.id)
+    setSelectedSubmoduleId(selectedSubmodule.id)
+    setSelectedNodeId(movedNodes[0]?.id ?? '')
+    setMoveDestinationChapterId('')
+  }
+
+  const moveSubmoduleToChapter = (destinationChapterId: string) => {
+    if (!selectedSubject || !selectedChapter || !selectedSubmodule || !destinationChapterId) return
+    const destinationChapter = selectedSubject.chapters.find((chapter) => chapter.id === destinationChapterId)
+    if (!destinationChapter || destinationChapter.id === selectedChapter.id) return
+
+    if (selectedChapter.submodules.length === 1) {
+      setConfirmation({
+        title: t('Move the only submodule?', 'Pindahkan satu-satunya submodul?'),
+        message: t(
+          'Moving it will leave this chapter empty. Continue?',
+          'Jika dipindahkan, bab ini akan kosong. Lanjutkan?',
+        ),
+        confirmLabel: t('Move submodule', 'Pindahkan submodul'),
+        tone: 'warning',
+        onConfirm: () => applyMoveSubmoduleToChapter(destinationChapterId),
+        onCancel: () => setMoveDestinationChapterId(''),
+      })
+      return
+    }
+
+    applyMoveSubmoduleToChapter(destinationChapterId)
+  }
+
   const updateSubmodule = (submoduleId: string, update: (submodule: CurriculumSubmodule) => CurriculumSubmodule) => {
     if (!selectedSubject || !selectedChapter) return
     updateChapter(selectedSubject.id, selectedChapter.id, (chapter) => ({
       ...chapter,
       submodules: chapter.submodules.map((submodule) => submodule.id === submoduleId ? update(submodule) : submodule),
     }))
+  }
+
+  const renumberChapters = (subjects: CurriculumSubject[], subjectId: string) => {
+    return subjects.map((subject) => {
+      if (subject.id !== subjectId) return subject
+      return {
+        ...subject,
+        chapters: subject.chapters.map((chapter, index) => ({
+          ...chapter,
+          order: index + 1,
+        })),
+      }
+    })
   }
 
   const addNode = () => {
@@ -620,35 +873,73 @@ export default function TeacherPage() {
       const nodes = [...chapter.nodes]
       const currentIndex = nodes.findIndex((node) => node.id === selectedNode.id)
       const targetIndex = nodes.findIndex((node) => node.id === targetNode.id)
-      ;[nodes[currentIndex], nodes[targetIndex]] = [nodes[targetIndex]!, nodes[currentIndex]!]
+        ;[nodes[currentIndex], nodes[targetIndex]] = [nodes[targetIndex]!, nodes[currentIndex]!]
       return { ...chapter, nodes }
     })
   }
 
   const deleteSubject = () => {
-    if (!selectedSubject || !window.confirm(t(`Delete "${selectedSubject.name}" and all its chapters?`, `Hapus "${selectedSubject.name}" dan semua babnya?`))) return
-    const next = subjects.filter((subject) => subject.id !== selectedSubject.id)
-    updateDraft(next)
-    setSelectedSubjectId(next[0]?.id ?? '')
-    setSelectedChapterId(next[0]?.chapters[0]?.id ?? '')
-    setSelectedSubmoduleId(next[0]?.chapters[0]?.submodules[0]?.id ?? '')
-    setSelectedNodeId(next[0]?.chapters[0]?.nodes[0]?.id ?? '')
+    if (!selectedSubject) return
+    setConfirmation({
+      title: t('Delete subject?', 'Hapus mata pelajaran?'),
+      message: t(
+        `Delete "${selectedSubject.name}" and all its chapters?`,
+        `Hapus "${selectedSubject.name}" dan semua babnya?`,
+      ),
+      confirmLabel: t('Delete', 'Hapus'),
+      tone: 'danger',
+      onConfirm: () => {
+        const next = subjects.filter((subject) => subject.id !== selectedSubject.id)
+        updateDraft(next)
+        setSelectedSubjectId(next[0]?.id ?? '')
+        setSelectedChapterId(next[0]?.chapters[0]?.id ?? '')
+        setSelectedSubmoduleId(next[0]?.chapters[0]?.submodules[0]?.id ?? '')
+        setSelectedNodeId(next[0]?.chapters[0]?.nodes[0]?.id ?? '')
+      },
+    })
   }
 
   const deleteChapter = () => {
-    if (!selectedSubject || !selectedChapter || !window.confirm(t(`Delete "${selectedChapter.title}" and its roadmap?`, `Hapus "${selectedChapter.title}" dan petanya?`))) return
-    const chapters = selectedSubject.chapters.filter((chapter) => chapter.id !== selectedChapter.id)
-    updateSubject(selectedSubject.id, (subject) => ({ ...subject, chapters }))
-    setSelectedChapterId(chapters[0]?.id ?? '')
-    setSelectedSubmoduleId(chapters[0]?.submodules[0]?.id ?? '')
-    setSelectedNodeId(chapters[0]?.nodes[0]?.id ?? '')
+    if (!selectedSubject || !selectedChapter) return
+    setConfirmation({
+      title: t('Delete chapter?', 'Hapus bab?'),
+      message: t(
+        `Delete "${selectedChapter.title}" and its roadmap?`,
+        `Hapus "${selectedChapter.title}" dan petanya?`,
+      ),
+      confirmLabel: t('Delete', 'Hapus'),
+      tone: 'danger',
+      onConfirm: () => {
+        const next = renumberChapters(subjects, selectedSubject.id).map((subject) =>
+          subject.id === selectedSubject.id
+            ? { ...subject, chapters: subject.chapters.filter((chapter) => chapter.id !== selectedChapter.id) }
+            : subject
+        )
+        setSubjects(next)
+        const remaining = next.find((s) => s.id === selectedSubject.id)?.chapters
+        setSelectedChapterId(remaining?.[0]?.id ?? '')
+        setSelectedSubmoduleId(remaining?.[0]?.submodules[0]?.id ?? '')
+        setSelectedNodeId(remaining?.[0]?.nodes[0]?.id ?? '')
+      },
+    })
   }
 
   const deleteNode = () => {
-    if (!selectedSubject || !selectedChapter || !selectedNode || !window.confirm(t(`Delete "${selectedNode.title}"?`, `Hapus "${selectedNode.title}"?`))) return
-    const nodes = selectedChapter.nodes.filter((node) => node.id !== selectedNode.id)
-    updateChapter(selectedSubject.id, selectedChapter.id, (chapter) => ({ ...chapter, nodes }))
-    setSelectedNodeId(nodes.find((node) => (node.submoduleId ?? '') === selectedSubmoduleId)?.id ?? '')
+    if (!selectedSubject || !selectedChapter || !selectedNode) return
+    setConfirmation({
+      title: t('Delete learning step?', 'Hapus aktivitas belajar?'),
+      message: t(
+        `Delete "${selectedNode.title}"?`,
+        `Hapus "${selectedNode.title}"?`,
+      ),
+      confirmLabel: t('Delete', 'Hapus'),
+      tone: 'danger',
+      onConfirm: () => {
+        const nodes = selectedChapter.nodes.filter((node) => node.id !== selectedNode.id)
+        updateChapter(selectedSubject.id, selectedChapter.id, (chapter) => ({ ...chapter, nodes }))
+        setSelectedNodeId(nodes.find((node) => (node.submoduleId ?? '') === selectedSubmoduleId)?.id ?? '')
+      },
+    })
   }
 
   const addQuestion = () => {
@@ -925,8 +1216,8 @@ export default function TeacherPage() {
                   <Trash2 className="h-5 w-5" />
                 </button>
               </div>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <label><span className={labelClass}>{t('Subject name', 'Nama mata pelajaran')}</span>
+              <div className="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-6">
+                <label className="sm:col-span-2"><span className={labelClass}>{t('Subject name', 'Nama mata pelajaran')}</span>
                   <input
                     className={inputClass}
                     value={selectedSubject.name}
@@ -954,9 +1245,6 @@ export default function TeacherPage() {
                       setToast((current) => ({ ...current, visible: false }))
                     }}
                   />
-                  <span id="subject-grade-help" className="mt-1 block text-xs font-semibold text-slate-500">
-                    {t('Enter a whole number between 1 and 12.', 'Masukkan angka bulat antara 1 dan 12.')}
-                  </span>
                 </label>
                 <label><span className={labelClass}>{t('Icon', 'Ikon')}</span>
                   <select
@@ -984,13 +1272,23 @@ export default function TeacherPage() {
                     ))}
                   </select>
                 </label>
+                <label><span className={labelClass}>{t('Student access', 'Akses siswa')}</span>
+                  <select
+                    className={inputClass}
+                    value={selectedSubject.isPublished ? 'in_progress' : 'locked'}
+                    onChange={(event) => updateSubject(selectedSubject.id, (subject) => ({ ...subject, isPublished: event.target.value === 'in_progress' }))}
+                  >
+                    <option value="in_progress">{t('Available', 'Tersedia')}</option>
+                    <option value="locked">{t('Unavailable', 'Tidak tersedia')}</option>
+                  </select>
+                </label>
               </div>
             </section>
 
             <section className="rounded-3xl border-2 border-slate-200 bg-white p-4 sm:p-5">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                 <h2 className="font-extrabold text-slate-700">{t('Chapters and roadmaps', 'Bab dan peta belajar')}</h2>
-                <button type="button" onClick={addChapter} className="inline-flex items-center gap-1 rounded-xl bg-indigo-50 px-3 py-2 text-sm font-extrabold text-indigo-700 hover:bg-indigo-100">
+                <button type="button" onClick={addChapter} className={secondaryAddButtonClass}>
                   <Plus className="h-4 w-4" /> {t('Add chapter', 'Tambah bab')}
                 </button>
               </div>
@@ -1029,137 +1327,191 @@ export default function TeacherPage() {
                   </label>
                   <label><span className={labelClass}>{t('Student access', 'Akses siswa')}</span>
                     <select className={inputClass} value={selectedChapter.chaptersStatus} onChange={(event) => updateChapter(selectedSubject.id, selectedChapter.id, (chapter) => ({ ...chapter, chaptersStatus: event.target.value as CurriculumChapter['chaptersStatus'] }))}>
-                      <option value="in_progress">{t('Available', 'Tersedia')}</option><option value="completed">{t('Review', 'Ulasan')}</option><option value="locked">{t('Locked', 'Terkunci')}</option>
+                      <option value="in_progress">{t('Available', 'Tersedia')}</option><option value="locked">{t('Unavailable', 'Tidak tersedia')}</option>
                     </select>
                   </label>
                 </div>
 
                 <div className="border-t-2 border-slate-100 pt-5">
-                <div className="focus-submodule-panel mb-5 grid gap-3 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <label>
-                    <span className={labelClass}>{t('Focus submodule', 'Pilih submodul')}</span>
-                    <select
-                      className={inputClass}
-                      value={selectedSubmoduleId}
-                      onChange={(event) => {
-                        const submoduleId = event.target.value
-                        setSelectedSubmoduleId(submoduleId)
-                        setSelectedNodeId(selectedChapter.nodes.find((node) =>
-                          (node.submoduleId ?? '') === submoduleId)?.id ?? '')
-                      }}
-                    >
-                      {selectedChapter.submodules.map((submodule) => (
-                        <option key={submodule.id} value={submodule.id}>{submodule.title || t('Untitled submodule', 'Submodul tanpa judul')}</option>
-                      ))}
-                    </select>
-                  </label>
-                  {!isPreview && (
-                    <button type="button" onClick={addSubmodule} className="inline-flex items-center justify-center gap-1 rounded-xl bg-white px-3 py-2.5 text-sm font-extrabold text-indigo-700 ring-2 ring-indigo-100 hover:bg-indigo-50">
-                      <Plus className="h-4 w-4" /> {t('Add submodule', 'Tambah submodul')}
-                    </button>
-                  )}
-                  {selectedSubmodule && !isPreview && (
-                    <div className="sm:col-span-2 min-w-0">
-                      <label className="block min-w-0 w-full">
-                        <span className={labelClass}>{t('Submodule title', 'Judul submodul')}</span>
-                        <input
-                          className={inputClass}
-                          value={selectedSubmodule.title}
-                          onChange={(event) => updateSubmodule(selectedSubmodule.id, (item) => ({ ...item, title: event.target.value }))}
-                        />
-                      </label>
-                    </div>
-                  )}
-                </div>
-                <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-extrabold text-slate-700">{t('Learning path', 'Peta belajar')}</h3>
-                    <p className="text-xs font-semibold text-slate-400">{t('Select a step to edit it, or preview the learner experience.', 'Pilih langkah untuk mengedit atau melihat pengalaman siswa.')}</p>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsPreview((preview) => !preview)}
-                      aria-pressed={isPreview}
-                      className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3 py-2 text-sm font-extrabold transition-colors ${isPreview ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
-                    >
-                      <Play className="h-4 w-4" />
-                      {isPreview ? t('Exit preview', 'Keluar dari pratinjau') : t('Preview as learner', 'Pratinjau sebagai siswa')}
-                    </button>
-                    {!isPreview && selectedSubmodule && (
-                      <button type="button" onClick={addNode} className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-extrabold text-white hover:bg-indigo-700">
-                        <Plus className="h-4 w-4" /> {t('Add step', 'Tambah langkah')}
+                  <div className="focus-submodule-panel mb-5 grid gap-3 rounded-2xl border-2 border-indigo-100 bg-indigo-50/50 p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                    <label>
+                      <span className={labelClass}>{t('Focus submodule', 'Pilih submodul')}</span>
+                      <select
+                        className={inputClass}
+                        value={selectedSubmoduleId}
+                        onChange={(event) => {
+                          const submoduleId = event.target.value
+                          setSelectedSubmoduleId(submoduleId)
+                          setSelectedNodeId(selectedChapter.nodes.find((node) =>
+                            (node.submoduleId ?? '') === submoduleId)?.id ?? '')
+                        }}
+                      >
+                        {selectedChapter.submodules.map((submodule) => (
+                          <option key={submodule.id} value={submodule.id}>{submodule.title || t('Untitled submodule', 'Submodul tanpa judul')}</option>
+                        ))}
+                      </select>
+                    </label>
+                    {!isPreview && (
+                      <button type="button" onClick={addSubmodule} className={secondaryAddButtonClass}>
+                        <Plus className="h-4 w-4" /> {t('Add submodule', 'Tambah submodul')}
                       </button>
                     )}
-                  </div>
-                </div>
-
-                {selectedNodes.length > 0 ? (
-                  <div role="list" aria-label={t('Chapter learning path', 'Peta belajar bab')} className="mx-auto flex max-w-md flex-col items-center py-2">
-                    {selectedNodes.map((node, index) => {
-                      const isSelected = node.id === selectedNode?.id
-                      const NodeIcon = node.type === 'boss' ? Swords : node.type === 'quiz' ? Gamepad2 : node.type === 'treasure' ? Gift : FileText
-                      const isUnavailable = node.status === 'locked'
-                      const statusLabel = isUnavailable
-                        ? t('Unavailable', 'Tidak tersedia')
-                        : t('Available', 'Tersedia')
-                      const statusClass = isUnavailable
-                        ? 'bg-slate-100 text-slate-600'
-                        : 'bg-indigo-50 text-indigo-700'
-
-                      const isLeft = index % 2 === 0
-                      const strokeColorClass = isUnavailable ? 'text-slate-200' : 'text-indigo-200'
-
-                      return (
-                        <React.Fragment key={node.id}>
-                          <div role="listitem" className="relative z-10 flex w-full flex-col items-center">
+                    {selectedSubmodule && !isPreview && (
+                      <div className="sm:col-span-2 min-w-0">
+                        <label className="block min-w-0 w-full">
+                          <span className={labelClass}>{t('Submodule title', 'Judul submodul')}</span>
+                          <input
+                            className={inputClass}
+                            value={selectedSubmodule.title}
+                            onChange={(event) => updateSubmodule(selectedSubmodule.id, (item) => ({ ...item, title: event.target.value }))}
+                          />
+                        </label>
+                        <label className="block min-w-0 w-full mt-3">
+                          <span className={labelClass}>{t('Student access', 'Akses siswa')}</span>
+                          <select
+                            className={inputClass}
+                            value={selectedSubmodule.isPublished ? 'in_progress' : 'locked'}
+                            onChange={(event) => updateSubmodule(selectedSubmodule.id, (item) => ({ ...item, isPublished: event.target.value === 'in_progress' }))}
+                          >
+                            <option value="in_progress">{t('Available', 'Tersedia')}</option>
+                            <option value="locked">{t('Unavailable', 'Tidak tersedia')}</option>
+                          </select>
+                        </label>
+                        {moveDestinationChapters.length > 0 ? (
+                          <div className="mt-4 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                            <label className="block min-w-0 w-full">
+                              <span className={labelClass}>{t('Move submodule to chapter', 'Pindahkan submodul ke bab')}</span>
+                              <select
+                                className={inputClass}
+                                value={effectiveMoveDestinationChapterId}
+                                onChange={(event) => setMoveDestinationChapterId(event.target.value)}
+                              >
+                                {moveDestinationChapters.map((chapter) => (
+                                  <option key={chapter.id} value={chapter.id}>
+                                    {chapter.title || t('Untitled chapter', 'Bab tanpa judul')}
+                                  </option>
+                                ))}
+                              </select>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => moveSubmoduleToChapter(effectiveMoveDestinationChapterId)}
+                              className={secondaryAddButtonClass}
+                            >
+                              <MoveRight className="h-4 w-4" /> {t('Move', 'Pindahkan')}
+                            </button>
+                          </div>
+                        ) : (
+                          <p className="mt-4 text-xs font-semibold text-slate-500">
+                            {t('Add another chapter to move this submodule.', 'Tambahkan bab lain untuk memindahkan submodul ini.')}
+                          </p>
+                        )}
                         <button
                           type="button"
-                          onClick={() => setSelectedNodeId(node.id)}
-                          aria-current={isSelected ? 'step' : undefined}
-                          className={`relative flex w-[260px] items-center gap-3 rounded-2xl border-[3px] bg-white p-3 text-left shadow-sm transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-[320px] sm:gap-4 sm:p-4 ${isLeft ? '-translate-x-6 sm:-translate-x-8' : 'translate-x-6 sm:translate-x-8'} ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-100' : isUnavailable ? 'border-slate-200' : 'border-slate-100'}`}
+                          onClick={deleteSubmodule}
+                          disabled={selectedChapter.submodules.length === 1}
+                          aria-label={t('Delete submodule', 'Hapus submodul')}
+                          className="mt-3 inline-flex items-center gap-2 rounded-xl border-2 border-rose-200 bg-rose-50 px-3 py-2 text-sm font-extrabold text-rose-600 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white ${node.type === 'boss' ? 'bg-rose-600' : node.type === 'quiz' ? 'bg-violet-500' : node.type === 'treasure' ? 'bg-amber-500' : 'bg-sky-500'}`}>
-                              {isUnavailable
-                                ? <LockKeyhole className="h-5 w-5" />
-                                : <NodeIcon className="h-6 w-6" />}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center justify-between gap-2">
-                                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                                  {node.type === 'boss' ? t('Final boss', 'Bos akhir') : node.type === 'quiz' ? t('Quiz', 'Kuis') : node.type === 'treasure' ? t('Treasure', 'Harta') : t('Lesson', 'Pelajaran')}
-                                </span>
-                                <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${statusClass}`}>{statusLabel}</span>
-                              </span>
-                              {node.title && (
-                                <span className="mt-1 block truncate text-sm font-extrabold text-slate-700">
-                                  {node.title}
-                                </span>
-                              )}
-                            </span>
+                          <Trash2 className="h-4 w-4" /> {t('Delete submodule', 'Hapus submodul')}
                         </button>
-                          </div>
-                          {index < selectedNodes.length - 1 && (
-                            <div aria-hidden="true" className={`relative z-0 -my-1 flex h-16 w-full justify-center pointer-events-none sm:h-20 ${strokeColorClass}`}>
-                              <svg width="200" height="64" viewBox="0 0 200 64" className={`overflow-visible sm:hidden block ${strokeColorClass}`}>
-                                <path d={isLeft ? 'M 76 0 V 16 Q 76 32 86 32 H 114 Q 124 32 124 48 V 64' : 'M 124 0 V 16 Q 124 32 114 32 H 86 Q 76 32 76 48 V 64'} fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
-                              <svg width="320" height="80" viewBox="0 0 320 80" className={`overflow-visible hidden sm:block ${strokeColorClass}`}>
-                                <path d={isLeft ? 'M 128 0 V 20 Q 128 40 148 40 H 172 Q 192 40 192 60 V 80' : 'M 192 0 V 20 Q 192 40 172 40 H 148 Q 128 40 128 60 V 80'} fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
-                              </svg>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <h3 className="font-extrabold text-slate-700">{t('Learning path', 'Peta belajar')}</h3>
+                      <p className="text-xs font-semibold text-slate-400">{t('Select a step to edit it, or preview the learner experience.', 'Pilih langkah untuk mengedit atau melihat pengalaman siswa.')}</p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setIsPreview((preview) => !preview)}
+                        aria-pressed={isPreview}
+                        className={`inline-flex items-center gap-1.5 rounded-xl border-2 px-3 py-2 text-sm font-extrabold transition-colors ${isPreview ? 'border-indigo-200 bg-indigo-50 text-indigo-700' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                      >
+                        <Play className="h-4 w-4" />
+                        {isPreview ? t('Exit preview', 'Keluar dari pratinjau') : t('Preview as learner', 'Pratinjau sebagai siswa')}
+                      </button>
+                      {!isPreview && selectedSubmodule && (
+                        <button type="button" onClick={addNode} className={secondaryAddButtonClass}>
+                          <Plus className="h-4 w-4" /> {t('Add step', 'Tambah langkah')}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedNodes.length > 0 ? (
+                    <div role="list" aria-label={t('Chapter learning path', 'Peta belajar bab')} className="mx-auto flex max-w-md flex-col items-center py-2">
+                      {selectedNodes.map((node, index) => {
+                        const isSelected = node.id === selectedNode?.id
+                        const NodeIcon = node.type === 'boss' ? Swords : node.type === 'quiz' ? Gamepad2 : node.type === 'treasure' ? Gift : FileText
+                        const isUnavailable = node.status === 'locked'
+                        const statusLabel = isUnavailable
+                          ? t('Unavailable', 'Tidak tersedia')
+                          : t('Available', 'Tersedia')
+                        const statusClass = isUnavailable
+                          ? 'bg-slate-100 text-slate-600'
+                          : 'bg-indigo-50 text-indigo-700'
+
+                        const isLeft = index % 2 === 0
+                        const strokeColorClass = isUnavailable ? 'text-slate-200' : 'text-indigo-200'
+
+                        return (
+                          <React.Fragment key={node.id}>
+                            <div role="listitem" className="relative z-10 flex w-full flex-col items-center">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedNodeId(node.id)}
+                                aria-current={isSelected ? 'step' : undefined}
+                                className={`relative flex w-[260px] items-center gap-3 rounded-2xl border-[3px] bg-white p-3 text-left shadow-sm transition-all hover:shadow-md focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 sm:w-[320px] sm:gap-4 sm:p-4 ${isLeft ? '-translate-x-6 sm:-translate-x-8' : 'translate-x-6 sm:translate-x-8'} ${isSelected ? 'border-indigo-500 ring-4 ring-indigo-100' : isUnavailable ? 'border-slate-200' : 'border-slate-100'}`}
+                              >
+                                <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl text-white ${node.type === 'boss' ? 'bg-rose-600' : node.type === 'quiz' ? 'bg-violet-500' : node.type === 'treasure' ? 'bg-amber-500' : 'bg-sky-500'}`}>
+                                  {isUnavailable
+                                    ? <LockKeyhole className="h-5 w-5" />
+                                    : <NodeIcon className="h-6 w-6" />}
+                                </span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="flex items-center justify-between gap-2">
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
+                                      {node.type === 'boss' ? t('Final boss', 'Bos akhir') : node.type === 'quiz' ? t('Quiz', 'Kuis') : node.type === 'treasure' ? t('Treasure', 'Harta') : t('Lesson', 'Pelajaran')}
+                                    </span>
+                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-extrabold ${statusClass}`}>{statusLabel}</span>
+                                  </span>
+                                  {node.title && (
+                                    <span className="mt-1 block truncate text-sm font-extrabold text-slate-700">
+                                      {node.title}
+                                    </span>
+                                  )}
+                                </span>
+                              </button>
                             </div>
-                          )}
-                        </React.Fragment>
-                      )
-                    })}
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center">
-                    <CircleHelp className="mx-auto h-7 w-7 text-slate-400" />
-                    <p className="mt-2 text-sm font-bold text-slate-500">{t('This chapter has no learning steps yet.', 'Bab ini belum memiliki langkah belajar.')}</p>
-                    {!isPreview && selectedSubmodule && <button type="button" onClick={addNode} className="mt-3 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-extrabold text-white">{t('Add the first step', 'Tambah langkah pertama')}</button>}
-                  </div>
-                )}
+                            {index < selectedNodes.length - 1 && (
+                              <div aria-hidden="true" className={`relative z-0 -my-1 flex h-16 w-full justify-center pointer-events-none sm:h-20 ${strokeColorClass}`}>
+                                <svg width="200" height="64" viewBox="0 0 200 64" className={`overflow-visible sm:hidden block ${strokeColorClass}`}>
+                                  <path d={isLeft ? 'M 76 0 V 16 Q 76 32 86 32 H 114 Q 124 32 124 48 V 64' : 'M 124 0 V 16 Q 124 32 114 32 H 86 Q 76 32 76 48 V 64'} fill="none" stroke="currentColor" strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                                <svg width="320" height="80" viewBox="0 0 320 80" className={`overflow-visible hidden sm:block ${strokeColorClass}`}>
+                                  <path d={isLeft ? 'M 128 0 V 20 Q 128 40 148 40 H 172 Q 192 40 192 60 V 80' : 'M 192 0 V 20 Q 192 40 172 40 H 148 Q 128 40 128 60 V 80'} fill="none" stroke="currentColor" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </div>
+                            )}
+                          </React.Fragment>
+                        )
+                      })}
+                    </div>
+                  ) : (
+                    <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 p-6 text-center">
+                      <CircleHelp className="mx-auto h-7 w-7 text-slate-400" />
+                      <p className="mt-2 text-sm font-bold text-slate-500">{t('This chapter has no learning steps yet.', 'Bab ini belum memiliki langkah belajar.')}</p>
+                      {!isPreview && selectedSubmodule && (
+                        <button type="button" onClick={addNode} className={`${secondaryAddButtonClass} mt-3`}>
+                          <Plus className="h-4 w-4" />
+                          {t('Add the first step', 'Tambah langkah pertama')}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {selectedNode ? (
@@ -1204,31 +1556,90 @@ export default function TeacherPage() {
         >
           {isSaving ? <LoaderCircle className="h-5 w-5 animate-spin" /> : hasUnsavedChanges ? <Save className="h-5 w-5" /> : <Check className="hidden h-5 w-5 sm:block" />}
           <span>{isSaving ? t('Saving…', 'Menyimpan…') : hasUnsavedChanges ? t('Save changes', 'Simpan perubahan') : t('Saved', 'Tersimpan')}</span>
-          {hasUnsavedChanges && !isSaving && (
-            <kbd className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-800/40 text-[11px] font-bold text-emerald-100 border border-emerald-500/30">
-              ↵ Enter
-            </kbd>
-          )}
         </button>
       </div>
+      {hasUnsavedChanges && !isSaving && (
+        <p className="text-center text-[10px] font-semibold text-slate-400 tracking-wide uppercase">
+          💡 {t('Tip: Press Enter to save', 'Tip: Tekan Enter untuk menyimpan')}
+        </p>
+      )}
+      {confirmation && portalReady && createPortal(
+        <div className="fixed inset-0 z-[10010] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="teacher-confirmation-title"
+            aria-describedby="teacher-confirmation-message"
+            className="w-full max-w-sm space-y-5 rounded-3xl border-2 border-slate-200 bg-white p-5 shadow-2xl sm:p-6"
+          >
+            <div>
+              <div className="flex items-center gap-3">
+                <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-2xl border-2 ${
+                  confirmation.tone === 'danger'
+                    ? 'border-rose-100 bg-rose-50 text-rose-600'
+                    : 'border-amber-100 bg-amber-50 text-amber-600'
+                }`}>
+                  {confirmation.tone === 'danger'
+                    ? <Trash2 aria-hidden="true" className="h-5 w-5" />
+                    : <MoveRight aria-hidden="true" className="h-5 w-5" />}
+                </span>
+                <h2 id="teacher-confirmation-title" className="text-xl font-black text-slate-800">
+                  {confirmation.title}
+                </h2>
+              </div>
+              <p id="teacher-confirmation-message" className="mt-3 text-sm font-semibold leading-relaxed text-slate-500">
+                {confirmation.message}
+              </p>
+            </div>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                autoFocus
+                onClick={() => {
+                  const onCancel = confirmation.onCancel
+                  setConfirmation(null)
+                  onCancel?.()
+                }}
+                className="flex-1 rounded-2xl border-b-4 border-slate-300 bg-slate-100 py-3 text-sm font-extrabold text-slate-700 transition hover:bg-slate-200 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-300"
+              >
+                {t('Cancel', 'Batal')}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const onConfirm = confirmation.onConfirm
+                  setConfirmation(null)
+                  onConfirm()
+                }}
+                className={`flex-1 rounded-2xl border-b-4 py-3 text-sm font-extrabold text-white transition focus-visible:outline-none focus-visible:ring-4 ${
+                  confirmation.tone === 'danger'
+                    ? 'border-rose-800 bg-rose-600 hover:bg-rose-700 focus-visible:ring-rose-200'
+                    : 'border-amber-700 bg-amber-500 hover:bg-amber-600 focus-visible:ring-amber-200'
+                }`}
+              >
+                {confirmation.confirmLabel}
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
+      )}
       {toast.visible && portalReady && createPortal(
         <div
           role="alert"
           aria-live="assertive"
-          className={`fixed bottom-6 left-1/2 z-[10000] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 transition-all duration-300 ease-out transform ${
-            toast.visible
+          className={`fixed bottom-6 left-1/2 z-[10000] w-max max-w-[calc(100vw-2rem)] -translate-x-1/2 transition-all duration-300 ease-out transform ${toast.visible
               ? 'translate-y-0 opacity-100 scale-100'
               : 'translate-y-4 opacity-0 scale-95 pointer-events-none'
-          }`}
+            }`}
         >
           <div
-            className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-xl sm:px-6 sm:py-4 ${
-              toast.type === 'success'
+            className={`flex items-center gap-3 rounded-2xl border-2 px-4 py-3 shadow-xl sm:px-6 sm:py-4 ${toast.type === 'success'
                 ? 'profile-toast-success'
                 : toast.type === 'warning'
                   ? 'profile-toast-warning'
                   : 'profile-toast-error'
-            }`}
+              }`}
           >
             {toast.type === 'success' ? (
               <CheckCircle2 className="h-6 w-6 shrink-0" />
@@ -1249,6 +1660,7 @@ function NodePreview({ node, t }: {
   t: (en: string, id: string) => string
 }) {
   const resourceFormat = getCurriculumResourceFormat(node.resourceUrl)
+  const youtubeEmbedUrl = getYouTubeEmbedUrl(node.resourceUrl)
 
   return (
     <section aria-label={t('Learner preview', 'Pratinjau siswa')} className="rounded-3xl border-2 border-indigo-100 bg-indigo-50/60 p-4 sm:p-6">
@@ -1271,6 +1683,11 @@ function NodePreview({ node, t }: {
                 title={t('PDF material preview', 'Pratinjau materi PDF')}
                 t={t}
               />
+            ) : node.contentType === 'material' && youtubeEmbedUrl ? (
+              <YouTubeEmbed
+                src={youtubeEmbedUrl}
+                title={t('YouTube video', 'Video YouTube')}
+              />
             ) : node.contentType === 'material' && node.resourceUrl && resourceFormat !== 'presentation' ? (
               <iframe
                 src={node.resourceUrl}
@@ -1285,9 +1702,9 @@ function NodePreview({ node, t }: {
                 </a>
               </div>
             ) : (
-              <div className="select-text whitespace-pre-line text-sm font-medium leading-relaxed text-slate-700">
-                <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-                  {node.content || t('Lesson text will appear here once added.', 'Teks pelajaran akan tampil di sini setelah ditambahkan.')}
+              <div className="curriculum-markdown select-text text-sm font-medium text-slate-700">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {normalizeMarkdownMath(node.content || t('Lesson text will appear here once added.', 'Teks pelajaran akan tampil di sini setelah ditambahkan.'))}
                 </ReactMarkdown>
               </div>
             )}
@@ -1305,26 +1722,27 @@ function NodePreview({ node, t }: {
           <div className="mt-4 space-y-4">
             {node.questions.map((question, index) => (
               <div key={question.id} className="space-y-2">
-                <div className="select-text font-bold text-slate-700">
+                <QuestionImage src={question.imageUrl} alt={question.imageAlt} />
+                <div className="curriculum-markdown curriculum-markdown-compact select-text font-bold text-slate-700">
                   {index + 1}.{' '}
                   <ReactMarkdown
-                    remarkPlugins={[remarkMath]}
+                    remarkPlugins={[remarkGfm, remarkMath]}
                     rehypePlugins={[rehypeKatex]}
                     components={inlineMarkdownComponents}
                   >
-                    {question.prompt || t('Question prompt', 'Teks pertanyaan')}
+                    {normalizeMarkdownMath(question.prompt || t('Question prompt', 'Teks pertanyaan'))}
                   </ReactMarkdown>
                 </div>
                 <div className="grid gap-2 sm:grid-cols-2">
                   {question.options.map((option, optionIndex) => (
-                    <div key={option.id} className="select-text rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
+                    <div key={option.id} className="curriculum-markdown curriculum-markdown-compact select-text rounded-xl border-2 border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-600">
                       <span className="mr-2 text-xs font-extrabold text-slate-400">{optionIndex + 1}.</span>
                       <ReactMarkdown
-                        remarkPlugins={[remarkMath]}
+                        remarkPlugins={[remarkGfm, remarkMath]}
                         rehypePlugins={[rehypeKatex]}
                         components={inlineMarkdownComponents}
                       >
-                        {option.text || t('Answer choice', 'Pilihan jawaban')}
+                        {normalizeAnswerOptionMath(option.text || t('Answer choice', 'Pilihan jawaban'))}
                       </ReactMarkdown>
                     </div>
                   ))}
@@ -1362,7 +1780,7 @@ function GeneratedRoadmapReview({
         <div className="rounded-xl bg-emerald-50 p-2 text-emerald-600"><CheckCircle2 className="h-5 w-5" /></div>
         <div>
           <h3 className="font-extrabold text-slate-800">{t('Review your generated draft', 'Tinjau draf yang dibuat')}</h3>
-          <p className="text-xs font-semibold text-slate-500">{t('Check the chapter, lesson text, and answer keys. You can edit every item after adding it to the editor.', 'Periksa bab, teks pelajaran, dan kunci jawaban. Semua bagian dapat diedit setelah ditambahkan ke editor.')}</p>
+          <p className="text-xs font-semibold text-slate-500">{t('Review at least 2 lessons, 2 quizzes, and 1 treasure (aim for 3 lessons, 3 quizzes, and 2 treasures when supported). Quizzes and the final boss have 3–10 questions (aim for 10). Check every answer key before adding.', 'Tinjau minimal 2 pelajaran, 2 kuis, dan 1 peti harta (target 3 pelajaran, 3 kuis, dan 2 peti jika materi mendukung). Kuis dan bos akhir berisi 3–10 soal (target 10). Periksa setiap kunci jawaban sebelum menambahkan.')}</p>
         </div>
       </div>
 
@@ -1376,28 +1794,59 @@ function GeneratedRoadmapReview({
         {draft.nodes.map((node, index) => (
           <li key={`${index}-${node.title}`} className="rounded-xl border-2 border-slate-100 p-3">
             <div className="flex items-center gap-2">
-              {node.type === 'quiz'
-                ? <Gamepad2 className="h-4 w-4 text-violet-500" />
-                : <FileText className="h-4 w-4 text-sky-500" />}
+              {node.type === 'quiz' ? <Gamepad2 className="h-4 w-4 text-violet-500" />
+                : node.type === 'treasure' ? <Gift className="h-4 w-4 text-amber-500" />
+                  : node.type === 'boss' ? <Swords className="h-4 w-4 text-rose-500" />
+                    : <FileText className="h-4 w-4 text-sky-500" />}
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">
-                {node.type === 'quiz' ? t('Quiz', 'Kuis') : t('Lesson', 'Pelajaran')} {index + 1}
+                {node.type === 'quiz' ? t('Quiz', 'Kuis')
+                  : node.type === 'treasure' ? t('Treasure', 'Peti harta')
+                    : node.type === 'boss' ? t('Final boss', 'Bos akhir')
+                      : t('Lesson', 'Pelajaran')} {index + 1}
+                {node.type === 'quiz' && ` · ${node.questions.length} ${t('questions', 'soal')}`}
+                {node.type === 'boss' && ` · ${node.questions.length} ${t('questions', 'soal')}`}
               </span>
             </div>
             <h5 className="mt-1 font-extrabold text-slate-700">{node.title}</h5>
             {node.type === 'lesson' ? (
-              <p className="mt-2 select-text whitespace-pre-line text-sm leading-relaxed text-slate-600">{node.content}</p>
+              <div className="curriculum-markdown mt-2 select-text text-sm text-slate-600">
+                <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath]} rehypePlugins={[rehypeKatex]}>
+                  {normalizeMarkdownMath(node.content)}
+                </ReactMarkdown>
+              </div>
+            ) : node.type === 'treasure' ? (
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-extrabold text-amber-800">
+                <Gift className="h-5 w-5 shrink-0" />
+                {`25 ${t('gems', 'permata')}`}
+              </div>
             ) : (
               <div className="mt-3 space-y-3">
                 {node.questions.map((question, questionIndex) => (
                   <div key={`${questionIndex}-${question.prompt}`} className="rounded-lg bg-slate-50 p-3">
-                    <p className="select-text text-sm font-bold text-slate-700">{questionIndex + 1}. {question.prompt}</p>
+                    <div className="curriculum-markdown curriculum-markdown-compact select-text text-sm font-bold text-slate-700">
+                      <span>{questionIndex + 1}. </span>
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm, remarkMath]}
+                        rehypePlugins={[rehypeKatex]}
+                        components={inlineMarkdownComponents}
+                      >
+                        {normalizeMarkdownMath(question.prompt)}
+                      </ReactMarkdown>
+                    </div>
                     <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
                       {question.options.map((option, optionIndex) => (
                         <li
                           key={`${optionIndex}-${option}`}
-                          className={`select-text rounded-lg border px-2.5 py-2 text-xs font-semibold ${question.correctIndex === optionIndex ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`}
+                          className={`curriculum-markdown curriculum-markdown-compact select-text rounded-lg border px-2.5 py-2 text-xs font-semibold ${question.correctIndex === optionIndex ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-slate-200 bg-white text-slate-600'}`}
                         >
-                          {optionIndex + 1}. {option}
+                          <span className="mr-1">{optionIndex + 1}.</span>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[rehypeKatex]}
+                            components={inlineMarkdownComponents}
+                          >
+                            {normalizeAnswerOptionMath(option)}
+                          </ReactMarkdown>
                           {question.correctIndex === optionIndex && <span className="ml-1 font-extrabold">· {t('Correct answer', 'Jawaban benar')}</span>}
                         </li>
                       ))}
@@ -1414,7 +1863,7 @@ function GeneratedRoadmapReview({
         <button type="button" onClick={onDiscard} className="rounded-xl px-4 py-2.5 text-sm font-extrabold text-slate-500 hover:bg-slate-50">
           {t('Discard draft', 'Buang draf')}
         </button>
-        <button type="button" onClick={onAdd} className="inline-flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-4 py-2.5 text-sm font-extrabold text-white hover:bg-emerald-700">
+        <button type="button" onClick={onAdd} className={secondaryAddButtonClass}>
           <Plus className="h-4 w-4" /> {t('Add draft to curriculum editor', 'Tambahkan draf ke editor kurikulum')}
         </button>
       </div>
@@ -1454,6 +1903,65 @@ function NodeEditor({
   )
   const [isUploadingMaterial, setIsUploadingMaterial] = useState(false)
   const [materialUploadError, setMaterialUploadError] = useState('')
+  const [uploadedFile, setUploadedFile] = useState<{ name: string; size: string; type: string } | null>(null)
+  const [uploadingQuestionId, setUploadingQuestionId] = useState<string | null>(null)
+  const [questionImageUploadError, setQuestionImageUploadError] = useState('')
+
+  const uploadQuestionImage = async (questionId: string, file: File) => {
+    const extension = file.name.split('.').pop()?.toLowerCase()
+    if (!['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'].includes(extension ?? '')) {
+      setQuestionImageUploadError(t('Choose a JPG, PNG, WebP, GIF, or AVIF image.', 'Pilih gambar JPG, PNG, WebP, GIF, atau AVIF.'))
+      return
+    }
+    if (file.size === 0 || file.size > 25 * 1024 * 1024) {
+      setQuestionImageUploadError(t('Choose an image no larger than 25 MB.', 'Pilih gambar berukuran maksimal 25 MB.'))
+      return
+    }
+
+    setUploadingQuestionId(questionId)
+    setQuestionImageUploadError('')
+    const formData = new FormData()
+    formData.set('file', file)
+    try {
+      const response = await fetch('/api/curriculum/material-upload', { method: 'POST', body: formData })
+      let result: unknown
+      try {
+        result = await response.json()
+      } catch {
+        throw new Error(t('The upload service returned an unreadable response.', 'Layanan unggah mengirim respons yang tidak terbaca.'))
+      }
+      if (!response.ok) {
+        const message = typeof result === 'object' && result !== null && 'error' in result && typeof result.error === 'string'
+          ? result.error
+          : t('Could not upload this image. Please try again.', 'Gambar tidak dapat diunggah. Silakan coba lagi.')
+        throw new Error(message)
+      }
+      if (
+        typeof result !== 'object'
+        || result === null
+        || !('url' in result)
+        || !('contentType' in result)
+      ) {
+        throw new Error(t('The upload service returned invalid image details.', 'Layanan unggah mengirim detail gambar yang tidak valid.'))
+      }
+      const uploadedUrl = result.url
+      if (typeof uploadedUrl !== 'string' || result.contentType !== 'poster') {
+        throw new Error(t('The upload service returned invalid image details.', 'Layanan unggah mengirim detail gambar yang tidak valid.'))
+      }
+      onUpdateQuestion(questionId, (question) => ({
+        ...question,
+        imageUrl: uploadedUrl,
+        imageAlt: '',
+      }))
+    } catch (error) {
+      console.error('Failed to upload question image.', error)
+      setQuestionImageUploadError(error instanceof Error
+        ? error.message
+        : t('Could not upload this image. Please try again.', 'Gambar tidak dapat diunggah. Silakan coba lagi.'))
+    } finally {
+      setUploadingQuestionId(null)
+    }
+  }
 
   const uploadLessonMaterial = async (file: File) => {
     if (file.size > 25 * 1024 * 1024) {
@@ -1489,6 +1997,9 @@ function NodeEditor({
       }
       const uploadedUrl = result.url
       const uploadedContentType = result.contentType
+      const uploadedType = typeof uploadedContentType === 'string' ? uploadedContentType : (file.type || 'application/octet-stream')
+      const uploadedSize = ((file.size / 1024) / 1024).toFixed(2) + ' MB'
+      setUploadedFile({ name: file.name, size: uploadedSize, type: uploadedType })
       if (
         typeof uploadedUrl !== 'string'
         || (uploadedContentType !== 'poster' && uploadedContentType !== 'material')
@@ -1500,6 +2011,7 @@ function NodeEditor({
         contentType: uploadedContentType,
         resourceUrl: uploadedUrl,
       }))
+      setMaterialMode('upload')
     } catch (error) {
       console.error('Failed to upload lesson material.', error)
       setMaterialUploadError(error instanceof Error
@@ -1523,11 +2035,15 @@ function NodeEditor({
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-3">
-        {node.type !== 'treasure' && (
-          <label className="sm:col-span-2"><span className={labelClass}>{t('Node title', 'Judul node')}</span>
-            <input className={inputClass} value={node.title} onChange={(event) => updateNode((current) => ({ ...current, title: event.target.value }))} />
-          </label>
-        )}
+        <label className="sm:col-span-2"><span className={labelClass}>{node.type === 'treasure' ? t('Treasure name', 'Nama peti harta') : t('Node title', 'Judul node')}</span>
+          <input
+            className={inputClass}
+            value={node.title}
+            maxLength={160}
+            placeholder={node.type === 'treasure' ? t('Enter a treasure name', 'Masukkan nama peti harta') : undefined}
+            onChange={(event) => updateNode((current) => ({ ...current, title: event.target.value }))}
+          />
+        </label>
         <label><span className={labelClass}>{t('Activity type', 'Jenis aktivitas')}</span>
           <select className={inputClass} value={node.type} onChange={(event) => onTypeChange(event.target.value as CurriculumNode['type'])}>
             <option value="lesson">{t('Lesson / material', 'Pelajaran / materi')}</option><option value="quiz">{t('Quiz', 'Kuis')}</option><option value="boss">{t('Final boss', 'Bos akhir')}</option><option value="treasure">{t('Treasure chest', 'Peti harta')}</option>
@@ -1548,11 +2064,10 @@ function NodeEditor({
                   type="button"
                   aria-pressed={isActive}
                   onClick={() => updateNode((current) => ({ ...current, status }))}
-                  className={`w-full min-w-0 rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${
-                    isActive
+                  className={`w-full min-w-0 rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${isActive
                       ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                       : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40'
-                  }`}
+                    }`}
                 >
                   {label}
                 </button>
@@ -1583,11 +2098,10 @@ function NodeEditor({
                     if (mode === 'text') updateNode((current) => ({ ...current, contentType: 'text' }))
                     if (mode === 'url') updateNode((current) => ({ ...current, contentType: 'material' }))
                   }}
-                  className={`rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${
-                    materialMode === mode
+                  className={`rounded-xl border-2 px-3 py-2.5 text-sm font-extrabold transition-colors ${materialMode === mode
                       ? 'border-indigo-500 bg-indigo-50 text-indigo-700'
                       : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-200'
-                  }`}
+                    }`}
                 >
                   {label}
                 </button>
@@ -1600,33 +2114,54 @@ function NodeEditor({
             </label>
           ) : materialMode === 'upload' ? (
             <div className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
-              <label className="block">
-                <span className={labelClass}>{t('Upload a file', 'Unggah file')}</span>
-                <input
-                  type="file"
-                  accept=".ppt,.pptx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.avif,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,image/webp,image/gif,image/avif"
-                  disabled={isUploadingMaterial}
-                  onChange={(event) => {
-                    const file = event.target.files?.[0]
-                    if (file) void uploadLessonMaterial(file)
-                    event.target.value = ''
-                  }}
-                  className="block w-full cursor-pointer rounded-xl border-2 border-slate-200 bg-slate-50 text-sm font-semibold text-slate-600 file:mr-3 file:cursor-pointer file:border-0 file:bg-indigo-50 file:px-4 file:py-3 file:font-extrabold file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-60"
-                />
-              </label>
-              <p className="text-xs font-semibold text-slate-400">
-                {t('PDF, PowerPoint, or image · up to 25 MB. Combine multiple posters into one PDF.', 'PDF, PowerPoint, atau gambar · maksimal 25 MB. Gabungkan beberapa poster menjadi satu PDF.')}
-              </p>
-              {isUploadingMaterial && <p role="status" className="text-sm font-bold text-indigo-600">{t('Uploading file…', 'Mengunggah file…')}</p>}
-              {materialUploadError && <p role="alert" className="text-sm font-bold text-rose-700">{materialUploadError}</p>}
+              {uploadedFile ? (
+                <div className="flex items-center gap-3 rounded-xl border-2 border-emerald-200 bg-emerald-50 p-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-emerald-100 text-emerald-600">
+                    <FileText className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-extrabold text-emerald-700">{uploadedFile.name}</span>
+                    <span className="mt-0.5 block text-xs font-semibold text-emerald-600">{uploadedFile.size}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setUploadedFile(null)}
+                    className="ml-auto shrink-0 text-xs font-bold text-emerald-500 hover:text-emerald-700 underline"
+                  >
+                    {t('Remove', 'Hapus')}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <label className="block">
+                    <span className={labelClass}>{t('Upload a file', 'Unggah file')}</span>
+                    <input
+                      type="file"
+                      accept=".ppt,.pptx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.avif,application/pdf,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,image/png,image/jpeg,image/webp,image/gif,image/avif"
+                      disabled={isUploadingMaterial}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0]
+                        if (file) void uploadLessonMaterial(file)
+                        event.target.value = ''
+                      }}
+                      className="block w-full cursor-pointer rounded-xl border-2 border-slate-200 bg-slate-50 text-sm font-semibold text-slate-600 file:mr-3 file:cursor-pointer file:border-0 file:bg-indigo-50 file:px-4 file:py-3 file:font-extrabold file:text-indigo-700 hover:file:bg-indigo-100 disabled:opacity-60"
+                    />
+                  </label>
+                  <p className="text-xs font-semibold text-slate-400">
+                    {t('PDF, PowerPoint, or image · up to 25 MB. Combine multiple posters into one PDF.', 'PDF, PowerPoint, atau gambar · maksimal 25 MB. Gabungkan beberapa poster menjadi satu PDF.')}
+                  </p>
+                  {isUploadingMaterial && <p role="status" className="text-sm font-bold text-indigo-600">{t('Uploading file…', 'Mengunggah file…')}</p>}
+                  {materialUploadError && <p role="alert" className="text-sm font-bold text-rose-700">{materialUploadError}</p>}
+                </>
+              )}
             </div>
           ) : (
-            <label className="block"><span className={labelClass}>{node.contentType === 'poster' ? t('Image URL', 'URL gambar') : t('Document URL', 'URL dokumen')}</span>
+            <label className="block"><span className={labelClass}>{node.contentType === 'poster' ? t('Image URL', 'URL gambar') : t('Document or YouTube URL', 'URL dokumen atau YouTube')}</span>
               <div className="relative">
                 <BookOpen className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <input className={`${inputClass} pl-10`} type="url" value={node.resourceUrl} onChange={(event) => updateNode((current) => ({ ...current, resourceUrl: event.target.value }))} placeholder="https://..." />
               </div>
-              <span className="mt-1 block text-xs font-semibold text-slate-400">{t('Use a publicly accessible file URL.', 'Gunakan URL file yang dapat diakses publik.')}</span>
+              <span className="mt-1 block text-xs font-semibold text-slate-400">{t('Use a publicly accessible file URL or a YouTube video link.', 'Gunakan URL file publik atau tautan video YouTube.')}</span>
             </label>
           )}
         </div>
@@ -1701,7 +2236,7 @@ function NodeEditor({
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div><h4 className="font-extrabold text-slate-700">{t('Questions', 'Pertanyaan')}</h4><p className="text-xs font-semibold text-slate-400">{t('Provide 4 or 5 choices. Mark every correct answer; choices start as incorrect.', 'Sediakan 4 atau 5 pilihan. Tandai setiap jawaban benar; semua pilihan dimulai sebagai salah.')}</p></div>
-            <button type="button" onClick={onAddQuestion} className="rounded-xl bg-white px-3 py-2 text-sm font-extrabold text-indigo-600 hover:bg-indigo-50"><Plus className="mr-1 inline h-4 w-4" />{t('Add question', 'Tambah pertanyaan')}</button>
+            <button type="button" onClick={onAddQuestion} className={secondaryAddButtonClass}><Plus className="h-4 w-4" />{t('Add question', 'Tambah pertanyaan')}</button>
           </div>
           {node.questions.map((question, questionIndex) => (
             <div key={question.id} className="space-y-3 rounded-2xl border-2 border-slate-200 bg-white p-4">
@@ -1710,6 +2245,70 @@ function NodeEditor({
                 <button type="button" disabled={node.questions.length <= 1} onClick={() => updateNode((current) => ({ ...current, questions: current.questions.filter((item) => item.id !== question.id) }))} className="rounded-lg p-1.5 text-rose-500 hover:bg-rose-50 disabled:opacity-30" aria-label={t('Delete question', 'Hapus pertanyaan')}><Trash2 className="h-4 w-4" /></button>
               </div>
               <textarea className={inputClass} rows={2} value={question.prompt} onChange={(event) => onUpdateQuestion(question.id, (current) => ({ ...current, prompt: event.target.value }))} placeholder={t('Write the question...', 'Tulis pertanyaan...')} />
+              <div className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-extrabold text-slate-700">{t('Question image (optional)', 'Gambar soal (opsional)')}</p>
+                    <p className="text-xs font-semibold text-slate-500">{t('Add a diagram, graph, or other image.', 'Tambahkan diagram, grafik, atau gambar lainnya.')}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border-2 border-indigo-100 bg-white px-3 py-2 text-xs font-extrabold text-indigo-700 hover:bg-indigo-50 has-[:disabled]:cursor-wait has-[:disabled]:opacity-60">
+                      {uploadingQuestionId === question.id
+                        ? <LoaderCircle className="h-4 w-4 animate-spin" />
+                        : <UploadCloud className="h-4 w-4" />}
+                      {question.imageUrl ? t('Replace image', 'Ganti gambar') : t('Upload image', 'Unggah gambar')}
+                      <input
+                        type="file"
+                        accept=".jpg,.jpeg,.png,.webp,.gif,.avif,image/jpeg,image/png,image/webp,image/gif,image/avif"
+                        disabled={uploadingQuestionId !== null}
+                        className="sr-only"
+                        onChange={(event) => {
+                          const file = event.currentTarget.files?.[0]
+                          event.currentTarget.value = ''
+                          if (file) void uploadQuestionImage(question.id, file)
+                        }}
+                      />
+                    </label>
+                    {question.imageUrl && (
+                      <button
+                        type="button"
+                        onClick={() => onUpdateQuestion(question.id, (current) => ({
+                          ...current,
+                          imageUrl: null,
+                          imageAlt: null,
+                        }))}
+                        className="inline-flex items-center gap-1 rounded-xl px-2 py-2 text-xs font-extrabold text-rose-600 hover:bg-rose-50"
+                      >
+                        <Trash2 className="h-4 w-4" /> {t('Remove', 'Hapus')}
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {question.imageUrl ? (
+                  <>
+                    <QuestionImage src={question.imageUrl} alt={question.imageAlt} />
+                    <label className="block">
+                      <span className={labelClass}>{t('Description shown above image (required)', 'Deskripsi yang ditampilkan di atas gambar (wajib)')}</span>
+                      <input
+                        className={inputClass}
+                        value={question.imageAlt ?? ''}
+                        maxLength={500}
+                        onChange={(event) => onUpdateQuestion(question.id, (current) => ({
+                          ...current,
+                          imageAlt: event.target.value,
+                        }))}
+                        placeholder={t('e.g. Refer to the data below.', 'Contoh: Lihatlah data berikut.')}
+                      />
+                    </label>
+                  </>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-300 px-3 py-4 text-center text-xs font-semibold text-slate-400">
+                    {t('Image preview will appear here after upload.', 'Pratinjau gambar akan muncul di sini setelah diunggah.')}
+                  </div>
+                )}
+                {uploadingQuestionId === question.id && <p role="status" className="text-xs font-bold text-indigo-600">{t('Uploading image…', 'Mengunggah gambar…')}</p>}
+                {questionImageUploadError && <p role="alert" className="text-xs font-bold text-rose-700">{questionImageUploadError}</p>}
+              </div>
               <div className="space-y-2">
                 {question.options.map((option, optionIndex) => (
                   <div key={option.id} className="flex items-center gap-2">
@@ -1747,8 +2346,8 @@ function NodeEditor({
                   <button type="button" onClick={() => onUpdateQuestion(question.id, (current) => ({
                     ...current,
                     options: [...current.options, { id: createCurriculumId('option'), text: '', isCorrect: false }],
-                  }))} className="ml-8 rounded-lg px-2 py-1 text-xs font-extrabold text-indigo-600 hover:bg-indigo-50">
-                    <Plus className="mr-1 inline h-3.5 w-3.5" />{t('Add answer choice', 'Tambah pilihan jawaban')}
+                  }))} className={`${secondaryAddButtonClass} ml-8`}>
+                    <Plus className="h-4 w-4" />{t('Add answer choice', 'Tambah pilihan jawaban')}
                   </button>
                 )}
               </div>
