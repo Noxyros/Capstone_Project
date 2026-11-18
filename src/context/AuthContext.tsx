@@ -16,7 +16,7 @@ interface AuthContextValue {
   state: AuthState
   error: string
   signOut: () => Promise<void>
-  refreshProfile: () => Promise<void>
+  refreshProfile: (options?: { silent?: boolean }) => Promise<void>
   updateProfile: (profile: AppProfile, options?: { invalidateLeaderboard?: boolean }) => void
   updateProfileFields: (fields: Partial<AppProfile>) => void
 }
@@ -210,15 +210,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError('')
   }, [user])
 
-  const refreshProfile = useCallback(async () => {
+  const refreshProfile = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     if (!user) return
-    setState('loading')
+    if (!silent) setState('loading')
     try {
       await loadProfile(user.id)
     } catch (profileError) {
       console.error('Failed to refresh the signed-in account profile.', profileError)
-      setState('profile_error')
-      setError(profileError instanceof Error ? profileError.message : 'Could not load your account profile.')
+      if (!silent) {
+        setState('profile_error')
+        setError(profileError instanceof Error ? profileError.message : 'Could not load your account profile.')
+      }
     }
   }, [loadProfile, user])
 

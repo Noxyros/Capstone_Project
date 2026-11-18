@@ -72,12 +72,96 @@ export function getEffectiveStreak(
   streak: number,
   lastActivityDate: string | null,
   today: string,
-  streakFreezeCount: number,
 ): number {
   if (!lastActivityDate || streak <= 0) return 0
   if (lastActivityDate === today || lastActivityDate === shiftDateKey(today, -1)) return streak
-  if (streakFreezeCount > 0 && lastActivityDate === shiftDateKey(today, -2)) return streak
   return 0
+}
+
+export type StreakSettlement = {
+  streak: number
+  lastActivityDate: string | null
+  freezesToConsume: number
+}
+
+function daysBetween(date: string, laterDate: string): number {
+  const [year, month, day] = date.split('-').map(Number)
+  const [laterYear, laterMonth, laterDay] = laterDate.split('-').map(Number)
+  return Math.round((
+    Date.UTC(laterYear!, laterMonth! - 1, laterDay!)
+    - Date.UTC(year!, month! - 1, day!)
+  ) / 86_400_000)
+}
+
+export function settleStreakForMissedDays(
+  streak: number,
+  lastActivityDate: string | null,
+  today: string,
+  streakFreezeCount: number,
+): StreakSettlement {
+  if (!lastActivityDate || streak <= 0) {
+    return { streak, lastActivityDate, freezesToConsume: 0 }
+  }
+
+  const missedDays = Math.max(0, daysBetween(lastActivityDate, today) - 1)
+  const freezesToConsume = Math.min(missedDays, Math.max(0, streakFreezeCount))
+  return {
+    streak: freezesToConsume < missedDays ? 0 : streak,
+    lastActivityDate: shiftDateKey(lastActivityDate, freezesToConsume),
+    freezesToConsume,
+  }
+}
+
+async function settleStreakInTransaction(
+  transaction: Prisma.TransactionClient,
+  userId: string,
+  today: string,
+): Promise<void> {
+  const [user] = await transaction.$queryRaw<{ streak: number; lastActivityDate: string | null }[]>`
+    SELECT "streak", "lastActivityDate"
+    FROM "User"
+    WHERE "id" = ${userId}
+    FOR UPDATE
+  `
+  if (!user) return
+  if (
+    !user.lastActivityDate
+    || user.streak <= 0
+    || daysBetween(user.lastActivityDate, today) <= 1
+  ) return
+
+  const freeze = await transaction.userPowerUp.findFirst({
+    where: {
+      userId,
+      powerUp: { code: PowerUpType.STREAK_FREEZE },
+    },
+    select: { id: true, quantity: true },
+  })
+  const settlement = settleStreakForMissedDays(
+    user.streak,
+    user.lastActivityDate,
+    today,
+    freeze?.quantity ?? 0,
+  )
+  if (settlement.freezesToConsume > 0 && freeze) {
+    await transaction.userPowerUp.update({
+      where: { id: freeze.id },
+      data: { quantity: { decrement: settlement.freezesToConsume } },
+    })
+  }
+
+  if (
+    settlement.streak !== user.streak
+    || settlement.lastActivityDate !== user.lastActivityDate
+  ) {
+    await transaction.user.update({
+      where: { id: userId },
+      data: {
+        streak: settlement.streak,
+        lastActivityDate: settlement.lastActivityDate,
+      },
+    })
+  }
 }
 
 export interface HeartRegenerationResult {
@@ -121,6 +205,10 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
   const weekStart = jakartaWeekStart(today)
   const monthStart = `${today.slice(0, 7)}-01`
   const weekStartInstant = new Date(`${weekStart}T00:00:00+07:00`)
+
+  await measureTimedOperation(timings, 'profile.streakSettlementMs', () =>
+    prisma.$transaction((transaction) => settleStreakInTransaction(transaction, userId, today)),
+  )
 
   const [user, weeklyTotals, students, completedNodesCount, perfectQuizzesCount, earnedGemsSum] = await Promise.all([
     measureTimedOperation(timings, 'profile.userQueryMs', () => prisma.user.findUnique({
@@ -205,7 +293,7 @@ export async function getAppProfile(userId: string, timings?: OperationTimings):
     handle: user.handle,
     avatarUrl: user.avatarUrl,
     role: user.role,
-    streak: getEffectiveStreak(user.streak, user.lastActivityDate, today, streakFreezeCount),
+    streak: getEffectiveStreak(user.streak, user.lastActivityDate, today),
     totalXp: user.totalXp,
     weeklyXp,
     gems: user.gems,
@@ -233,6 +321,9 @@ export async function recordActivityDay(
   timings?: OperationTimings,
 ): Promise<void> {
   const date = jakartaDateKey(now)
+  await measureTimedOperation(timings, 'streak.freezeSettlementMs', () =>
+    settleStreakInTransaction(transaction, userId, date),
+  )
   const inserted = await measureTimedOperation(timings, 'streak.activityDayInsertMs', () => transaction.activityDay.createMany({
     data: [{ id: crypto.randomUUID(), userId, date }],
     skipDuplicates: true,
@@ -245,26 +336,9 @@ export async function recordActivityDay(
   }))
   if (!user || user.lastActivityDate === date) return
 
-  let nextStreak = user.lastActivityDate === shiftDateKey(date, -1)
+  const nextStreak = user.lastActivityDate === shiftDateKey(date, -1)
     ? user.streak + 1
     : 1
-  if (user.lastActivityDate === shiftDateKey(date, -2)) {
-    const freeze = await measureTimedOperation(timings, 'streak.freezeReadMs', () => transaction.userPowerUp.findFirst({
-      where: {
-        userId,
-        quantity: { gt: 0 },
-        powerUp: { code: PowerUpType.STREAK_FREEZE },
-      },
-      select: { id: true },
-    }))
-    if (freeze) {
-      const consumed = await measureTimedOperation(timings, 'streak.freezeUpdateMs', () => transaction.userPowerUp.updateMany({
-        where: { id: freeze.id, quantity: { gt: 0 } },
-        data: { quantity: { decrement: 1 } },
-      }))
-      if (consumed.count === 1) nextStreak = user.streak + 1
-    }
-  }
 
   await measureTimedOperation(timings, 'streak.userUpdateMs', () => transaction.user.update({
     where: { id: userId },

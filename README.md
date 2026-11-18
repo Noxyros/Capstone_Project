@@ -16,6 +16,7 @@ Questly is a bilingual (English and Indonesian) curriculum-based learning app. S
 - Start timed, randomized Question Bank challenges by subject and submodule; recent attempt history is saved on this device.
 - Complete the three-question Daily Challenge and daily quests.
 - Earn XP and gems, maintain streaks, and manage hearts.
+- Opt in to a push reminder at 11 PM Jakarta when no learning activity has been completed that day.
 - Compare weekly XP on the leaderboard and manage account details in profile and settings.
 
 **Teacher Studio**
@@ -73,3 +74,17 @@ prisma/schema.prisma             # Database schema
 ## Curriculum flow
 
 Teachers edit curriculum in the Teacher Studio; `PUT /api/curriculum` saves it to the database, and student pages load published curriculum through `GET /api/curriculum`. Curriculum updates are broadcast to open tabs and appear on reload.
+
+## Daily push reminders
+
+Vercel sends one Web Push reminder at 11 PM Jakarta (4 PM UTC) to opted-in users who have not completed a lesson, quiz, or Question Bank challenge that day. Push notifications can arrive when the site is closed; users must allow browser notifications and enable Daily Reminders in Settings.
+
+On Vercel Hobby, cron jobs run with hour-level precision, so the reminder may arrive any time from 11:00 to 11:59 PM Jakarta. Plans with per-minute precision run at 11:00 PM.
+
+Configure these Vercel environment variables:
+
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`: generate with `npx web-push generate-vapid-keys`.
+- `VAPID_SUBJECT`: a contact URI such as `mailto:your-email@example.com`.
+- `CRON_SECRET`: a random secret used to authenticate the scheduled endpoint.
+
+Apply the Prisma migration before deploying. Vercel runs the schedule defined in `vercel.json` on production deployments.

@@ -10,12 +10,13 @@ import { useAuth } from '@/src/context/AuthContext'
 import LogoutConfirmDialog from '@/src/components/shared/LogoutConfirmDialog'
 import { isSoundEnabled, setSoundEnabled, playCorrectSound } from '@/src/lib/soundEffects'
 import {
-  areRemindersEnabled,
   setRemindersEnabled,
   isNotificationSupported,
-  getNotificationPermission,
   requestNotificationPermission,
   sendWelcomeReminderNotification,
+  loadDailyReminderStatus,
+  enableDailyReminders,
+  disableDailyReminders,
 } from '@/src/lib/dailyReminders'
 
 interface SettingsToggleRowProps {
@@ -74,8 +75,17 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setSound(isSoundEnabled())
-    setReminders(areRemindersEnabled() && getNotificationPermission() === 'granted')
-  }, [])
+    void loadDailyReminderStatus()
+      .then(setReminders)
+      .catch((error: unknown) => {
+        console.error('Could not load daily reminder settings.', error)
+        setReminders(false)
+        setReminderMessage(t(
+          'Could not load daily reminder settings. Please try again.',
+          'Tidak dapat memuat pengaturan pengingat harian. Silakan coba lagi.',
+        ))
+      })
+  }, [t])
 
   const handleToggleSound = (next: boolean) => {
     setSound(next)
@@ -88,8 +98,15 @@ export default function SettingsPage() {
   const handleToggleReminders = async (next: boolean) => {
     setReminderMessage('')
     if (!next) {
-      setReminders(false)
-      setRemindersEnabled(false)
+      try {
+        await disableDailyReminders()
+        setReminders(false)
+      } catch (error) {
+        console.error('Could not disable daily reminders.', error)
+        setReminderMessage(error instanceof Error
+          ? error.message
+          : t('Could not disable daily reminders. Please try again.', 'Tidak dapat menonaktifkan pengingat harian. Silakan coba lagi.'))
+      }
       return
     }
 
@@ -102,15 +119,24 @@ export default function SettingsPage() {
 
     const permission = await requestNotificationPermission()
     if (permission === 'granted') {
-      setReminders(true)
-      setRemindersEnabled(true)
-      sendWelcomeReminderNotification(language === 'id')
-    } else if (permission === 'denied') {
+      try {
+        await enableDailyReminders()
+        setReminders(true)
+        await sendWelcomeReminderNotification(language === 'id')
+      } catch (error) {
+        console.error('Could not enable daily reminders.', error)
+        setReminders(false)
+        setRemindersEnabled(false)
+        setReminderMessage(error instanceof Error
+          ? error.message
+          : t('Could not enable daily reminders. Please try again.', 'Tidak dapat mengaktifkan pengingat harian. Silakan coba lagi.'))
+      }
+    } else if (permission === 'denied' || permission === 'default') {
       setReminders(false)
       setRemindersEnabled(false)
       setReminderMessage(
         t(
-          'Notifications are blocked. Please enable notification permissions in your browser address bar.',
+          'Allow notifications in your browser to receive the 11 PM Jakarta reminder.',
           'Notifikasi diblokir. Silakan aktifkan izin notifikasi di bilah alamat browsermu.'
         )
       )
@@ -194,7 +220,7 @@ export default function SettingsPage() {
         <SettingsToggleRow
           icon={Bell}
           title={t('Daily Reminders', 'Pengingat Harian')}
-          subtitle={t('Get notifications to protect your study streak', 'Dapatkan notifikasi untuk menjaga streak belajarmu')}
+          subtitle={t('Get a push reminder at 11 PM Jakarta if you have not studied', 'Dapatkan pengingat push pukul 23.00 WIB jika kamu belum belajar')}
           iconBg="bg-amber-50"
           iconColor="text-amber-600"
           checked={reminders}
