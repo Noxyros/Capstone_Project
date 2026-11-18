@@ -6,6 +6,7 @@ import { ArrowLeft, Clock3, History, LayoutGrid, RotateCcw, Swords, Trash2, X, T
 import { useLanguage } from '@/src/context/LanguageContext'
 import { useAuth } from '@/src/context/AuthContext'
 import { useParams, useRouter } from 'next/navigation'
+import { isAppProfile, type AppProfile } from '@/src/lib/appProfile'
 import { normalizeAnswerOptionMath, normalizeMarkdownMath } from '@/src/lib/markdownMath'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
@@ -55,7 +56,7 @@ type BankResult = {
   gemsAwarded: number
   rewardAlreadyClaimed: boolean
   questionResults: { questionId: string; isCorrect: boolean; correctOptionIds: string[] }[]
-  profile: any
+  profile: AppProfile
 }
 
 type QuestionResult = {
@@ -168,6 +169,7 @@ function isBankResult(value: unknown): value is BankResult {
       && Array.isArray(result.correctOptionIds)
       && result.correctOptionIds.every((id) => typeof id === 'string'),
     )
+    && isAppProfile(value.profile)
 }
 
 function isBankReviewSnapshot(value: unknown): value is BankReviewSnapshot {
@@ -311,7 +313,7 @@ function removeCompletedSubmodule(userId: string, submoduleId: string): void {
 
 export default function BankChallengePage() {
   const { t, language } = useLanguage()
-  const { user } = useAuth()
+  const { user, updateProfile } = useAuth()
   const params = useParams<{ subjectId: string; chapterId: string; submoduleId: string }>()
   const subjectId = params.subjectId
   const chapterId = params.chapterId
@@ -482,6 +484,7 @@ export default function BankChallengePage() {
       if (!isBankResult(payload)) {
         throw new Error(t('Invalid result data.', 'Data hasil tidak valid.'))
       }
+      updateProfile(payload.profile)
       setResult(payload)
 
       if (user?.id) {
