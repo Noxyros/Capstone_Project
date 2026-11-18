@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { authenticateAppUser } from '@/src/lib/auth/server'
-import { getAppProfile, recordReward, jakartaDateKey } from '@/src/lib/gameEconomy'
+import { getAppProfile, recordActivityDay, recordReward, jakartaDateKey } from '@/src/lib/gameEconomy'
 import { prisma } from '@/src/lib/prisma'
 
 const BANK_QUESTION_COUNT = 10
@@ -295,6 +295,7 @@ export async function POST(
 
       if (!allAnswered) return { accepted: true, xpAwarded: 0 }
 
+      await recordActivityDay(transaction, authentication.appUser.id, now)
       const awarded = await recordReward(
         transaction,
         authentication.appUser.id,

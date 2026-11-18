@@ -4,6 +4,7 @@ import React, { createContext, useCallback, useContext, useEffect, useRef, useSt
 import { useAuth } from '@/src/context/AuthContext'
 import { isAppProfile, isGameStatePatch, type AppProfile } from '@/src/lib/appProfile'
 import { HEART_REFILL_INTERVAL_MS } from '@/src/lib/gameEconomy'
+import { jakartaCalendarDateKey, nextJakartaDailyReset } from '@/src/lib/dailyQuests'
 
 export type PowerUpCode = 'HEART_REFILL' | 'DOUBLE_XP' | 'STREAK_FREEZE'
 
@@ -44,7 +45,7 @@ function responseError(result: unknown, fallback: string): string {
 }
 
 export function UserProvider({ children }: { children: React.ReactNode }) {
-  const { profile, updateProfile } = useAuth()
+  const { profile, updateProfile, refreshProfile } = useAuth()
   const [isMutating, setIsMutating] = useState(false)
   const [isSuperModeSaving, setIsSuperModeSaving] = useState(false)
   const [gameError, setGameError] = useState('')
@@ -75,6 +76,44 @@ export function UserProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const actionInFlightRef = useRef(false)
+  const refreshProfileRef = useRef(refreshProfile)
+  refreshProfileRef.current = refreshProfile
+
+  useEffect(() => {
+    if (!profile?.id) return
+
+    let timeoutId: number
+    let active = true
+    let refreshedDate = jakartaCalendarDateKey()
+
+    const refreshIfDateChanged = () => {
+      if (!active || document.visibilityState === 'hidden') return
+      const currentDate = jakartaCalendarDateKey()
+      if (currentDate === refreshedDate) return
+      refreshedDate = currentDate
+      void refreshProfileRef.current({ silent: true })
+    }
+
+    const scheduleNextRefresh = () => {
+      const delay = Math.max(nextJakartaDailyReset().getTime() - Date.now() + 250, 250)
+      timeoutId = window.setTimeout(() => {
+        refreshIfDateChanged()
+        scheduleNextRefresh()
+      }, delay)
+    }
+
+    const handleVisibilityChange = () => refreshIfDateChanged()
+    scheduleNextRefresh()
+    window.addEventListener('focus', refreshIfDateChanged)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      active = false
+      window.clearTimeout(timeoutId)
+      window.removeEventListener('focus', refreshIfDateChanged)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [profile?.id])
 
   const runAction = useCallback(async (
     action: string,
