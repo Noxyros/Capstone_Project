@@ -97,7 +97,8 @@ export async function GET(
       where: {
         userId: authentication.appUser.id,
         submoduleId,
-        OR: [{ expiresAt: { lte: now } }, { completedAt: { not: null } }],
+        completedAt: null,
+        expiresAt: { lte: now },
       },
     })
     const activeAttempt = await prisma.practiceBankAttempt.findFirst({
@@ -249,12 +250,26 @@ export async function POST(
       },
       select: {
         id: true,
-        options: { select: { id: true, isCorrect: true } },
+        prompt: true,
+        imageUrl: true,
+        imageAlt: true,
+        options: { select: { id: true, text: true, isCorrect: true } },
       },
     })
 
     if (questions.length !== answers.length) {
       return NextResponse.json({ error: 'One or more questions are unavailable.' }, { status: 400 })
+    }
+    const submodule = await prisma.submodule.findUnique({
+      where: { id: submoduleId },
+      select: {
+        id: true,
+        title: true,
+        chapter: { select: { id: true, title: true } },
+      },
+    })
+    if (!submodule) {
+      return NextResponse.json({ error: 'This submodule is no longer available.' }, { status: 404 })
     }
 
     let correctCount = 0
@@ -280,7 +295,7 @@ export async function POST(
       if (isCorrect) correctCount += 1
     }
 
-    const { accepted, xpAwarded } = await prisma.$transaction(async (transaction) => {
+    const { accepted, xpAwarded, historyEntry } = await prisma.$transaction(async (transaction) => {
       const completed = await transaction.practiceBankAttempt.updateMany({
         where: {
           id: attempt.id,
@@ -291,19 +306,84 @@ export async function POST(
         },
         data: { completedAt: now },
       })
-      if (completed.count !== 1) return { accepted: false, xpAwarded: 0 }
+      if (completed.count !== 1) return { accepted: false, xpAwarded: 0, historyEntry: null }
 
-      if (!allAnswered) return { accepted: true, xpAwarded: 0 }
+      let xpAwarded = 0
+      if (allAnswered) {
+        await recordActivityDay(transaction, authentication.appUser.id, now)
+        const awarded = await recordReward(
+          transaction,
+          authentication.appUser.id,
+          `practice:bank:${jakartaDateKey(now)}:${submoduleId}`,
+          BANK_REWARD_XP,
+          BANK_REWARD_GEMS,
+        )
+        xpAwarded = awarded ? BANK_REWARD_XP : 0
+      }
 
-      await recordActivityDay(transaction, authentication.appUser.id, now)
-      const awarded = await recordReward(
-        transaction,
-        authentication.appUser.id,
-        `practice:bank:${jakartaDateKey(now)}:${submoduleId}`,
-        BANK_REWARD_XP,
-        BANK_REWARD_GEMS,
-      )
-      return { accepted: true, xpAwarded: awarded ? BANK_REWARD_XP : 0 }
+      const historyEntry = {
+        id: attempt.id,
+        completedAt: now.toISOString(),
+        correctCount,
+        xpAwarded,
+        gemsAwarded: xpAwarded > 0 ? BANK_REWARD_GEMS : 0,
+        challenge: {
+          attemptId: attempt.id,
+          questions: attempt.questionIds.map((questionId) => {
+            const question = questions.find((item) => item.id === questionId)
+            if (!question) throw new Error('A challenge question was not found while saving attempt history.')
+            return {
+              id: question.id,
+              prompt: question.prompt,
+              imageUrl: question.imageUrl,
+              imageAlt: question.imageAlt,
+              allowsMultipleAnswers: question.options.filter((option) => option.isCorrect).length > 1,
+              options: question.options.map(({ id, text }) => ({ id, text })),
+            }
+          }),
+          questionCount: attempt.questionIds.length,
+          questionPoolSize: attempt.questionIds.length,
+          node: {
+            id: submodule.id,
+            title: submodule.title,
+            chapter: submodule.chapter,
+            submodule: { id: submodule.id, title: submodule.title },
+          },
+          timerSeconds: attempt.questionIds.length * BANK_SECONDS_PER_QUESTION,
+          xpReward: BANK_REWARD_XP,
+          gemsReward: BANK_REWARD_GEMS,
+        },
+        questionResults: attempt.questionIds.map((questionId) => {
+          const result = questionResults.find((item) => item.questionId === questionId)
+          const answer = answers.find((item) => item.questionId === questionId)
+          if (!result || !answer) throw new Error('A submitted answer was not found while saving attempt history.')
+          return {
+            ...result,
+            selectedOptionIds: answer.optionIds,
+          }
+        }),
+      }
+      await transaction.$executeRaw`
+        UPDATE "PracticeBankAttempt"
+        SET "result" = ${JSON.stringify(historyEntry)}::jsonb
+        WHERE "id" = ${attempt.id}
+      `
+      await transaction.$executeRaw`
+        DELETE FROM "PracticeBankAttempt"
+        WHERE "userId" = ${authentication.appUser.id}
+          AND "submoduleId" = ${submoduleId}
+          AND "completedAt" IS NOT NULL
+          AND "id" NOT IN (
+            SELECT "id"
+            FROM "PracticeBankAttempt"
+            WHERE "userId" = ${authentication.appUser.id}
+              AND "submoduleId" = ${submoduleId}
+              AND "completedAt" IS NOT NULL
+            ORDER BY "completedAt" DESC, "createdAt" DESC
+            LIMIT 10
+          )
+      `
+      return { accepted: true, xpAwarded, historyEntry }
     })
     if (!accepted) {
       return NextResponse.json({ error: 'This challenge attempt has expired or was already submitted.' }, { status: 409 })
@@ -320,6 +400,7 @@ export async function POST(
       gemsAwarded,
       rewardAlreadyClaimed: allAnswered && xpAwarded === 0,
       questionResults,
+      historyEntry,
       profile,
     }, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
