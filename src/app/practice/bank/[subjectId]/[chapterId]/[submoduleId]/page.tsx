@@ -56,6 +56,7 @@ type BankResult = {
   gemsAwarded: number
   rewardAlreadyClaimed: boolean
   questionResults: { questionId: string; isCorrect: boolean; correctOptionIds: string[] }[]
+  historyEntry: BankAttempt
   profile: AppProfile
 }
 
@@ -161,6 +162,7 @@ function isBankResult(value: unknown): value is BankResult {
     && typeof value.xpAwarded === 'number'
     && typeof value.gemsAwarded === 'number'
     && typeof value.rewardAlreadyClaimed === 'boolean'
+    && isBankAttempt(value.historyEntry)
     && Array.isArray(value.questionResults)
     && value.questionResults.every((result) =>
       isRecord(result)
@@ -239,11 +241,54 @@ function getBankAttempts(userId: string, submoduleId: string): BankAttempt[] {
   }
 }
 
+function cacheBankAttempts(userId: string, submoduleId: string, attempts: BankAttempt[]): void {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    localStorage.setItem(getAttemptsKey(userId, submoduleId), JSON.stringify(attempts))
+  } catch (error) {
+    console.error('Failed to cache synchronized bank challenge history.', error)
+  }
+}
+
+function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+}
+
+function mergeBankAttempts(remoteAttempts: BankAttempt[], localAttempts: BankAttempt[]): BankAttempt[] {
+  const remoteIds = new Set(remoteAttempts.map((attempt) => attempt.id))
+  const retainedLocalAttempts = localAttempts.filter((attempt) => !isUuid(attempt.id) || remoteIds.has(attempt.id))
+  const attemptsById = new Map<string, BankAttempt>()
+  for (const attempt of [...retainedLocalAttempts, ...remoteAttempts]) {
+    attemptsById.set(attempt.id, attempt)
+  }
+  return [...attemptsById.values()]
+    .sort((left, right) => (right.completedAt ? Date.parse(right.completedAt) : 0) - (left.completedAt ? Date.parse(left.completedAt) : 0))
+    .slice(0, MAX_BANK_ATTEMPTS)
+}
+
+async function loadSynchronizedBankAttempts(submoduleId: string): Promise<BankAttempt[]> {
+  const response = await fetch(`/api/practice/bank/history/${encodeURIComponent(submoduleId)}`, { cache: 'no-store' })
+  const payload: unknown = await response.json()
+  if (!response.ok) {
+    throw new Error(
+      isRecord(payload) && typeof payload.error === 'string'
+        ? payload.error
+        : 'Could not load attempt history.',
+    )
+  }
+  if (!isRecord(payload) || !Array.isArray(payload.attempts) || !payload.attempts.every(isBankAttempt)) {
+    throw new Error('The server returned invalid Question Bank attempt history.')
+  }
+  return payload.attempts
+}
+
 function saveBankAttempt(userId: string, submoduleId: string, attempt: BankAttempt): BankAttempt[] | null {
   if (!userId || typeof window === 'undefined') return null
   try {
-    const attempts = [attempt, ...getBankAttempts(userId, submoduleId)].slice(0, MAX_BANK_ATTEMPTS)
-    localStorage.setItem(getAttemptsKey(userId, submoduleId), JSON.stringify(attempts))
+    const attempts = [attempt, ...getBankAttempts(userId, submoduleId).filter((savedAttempt) => savedAttempt.id !== attempt.id)]
+      .sort((left, right) => (right.completedAt ? Date.parse(right.completedAt) : 0) - (left.completedAt ? Date.parse(left.completedAt) : 0))
+      .slice(0, MAX_BANK_ATTEMPTS)
+    cacheBankAttempts(userId, submoduleId, attempts)
     return attempts
   } catch (error) {
     console.error('Failed to save bank challenge history.', error)
@@ -372,15 +417,66 @@ export default function BankChallengePage() {
     const savedAttempts = getBankAttempts(user.id, submoduleId)
     setAttempts(savedAttempts)
     const historyRequested = new URLSearchParams(window.location.search).get('view') === 'history'
+    const refreshHistory = loadSynchronizedBankAttempts(submoduleId).then((remoteAttempts) => {
+      const mergedAttempts = mergeBankAttempts(remoteAttempts, getBankAttempts(user.id, submoduleId))
+      cacheBankAttempts(user.id, submoduleId, mergedAttempts)
+      setAttempts(mergedAttempts)
+    })
     if (historyRequested) {
       setViewMode('history')
-      setIsLoading(false)
+      setIsLoading(true)
+      void refreshHistory
+        .catch((historyError: unknown) => {
+          console.error('Could not load synchronized Question Bank history.', historyError)
+          setError(historyError instanceof Error
+            ? historyError.message
+            : t('Could not load attempt history.', 'Tidak dapat memuat riwayat percobaan.'))
+        })
+        .finally(() => setIsLoading(false))
       return
     }
 
     setViewMode('challenge')
     void loadChallenge()
-  }, [user?.id, submoduleId, loadChallenge])
+    void refreshHistory.catch((historyError: unknown) => {
+      console.error('Could not refresh synchronized Question Bank history.', historyError)
+      setError(historyError instanceof Error
+        ? historyError.message
+        : t('Could not load attempt history.', 'Tidak dapat memuat riwayat percobaan.'))
+    })
+  }, [user?.id, submoduleId, loadChallenge, t])
+
+  useEffect(() => {
+    if (viewMode !== 'history' || !user?.id || !submoduleId) return
+    let active = true
+    const refreshHistory = () => {
+      void loadSynchronizedBankAttempts(submoduleId)
+        .then((remoteAttempts) => {
+          if (!active) return
+          const mergedAttempts = mergeBankAttempts(remoteAttempts, getBankAttempts(user.id, submoduleId))
+          cacheBankAttempts(user.id, submoduleId, mergedAttempts)
+          setAttempts(mergedAttempts)
+        })
+        .catch((historyError: unknown) => {
+          console.error('Could not refresh synchronized Question Bank history.', historyError)
+          if (active) {
+            setError(historyError instanceof Error
+              ? historyError.message
+              : t('Could not load attempt history.', 'Tidak dapat memuat riwayat percobaan.'))
+          }
+        })
+    }
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === 'visible') refreshHistory()
+    }
+    window.addEventListener('focus', refreshHistory)
+    document.addEventListener('visibilitychange', refreshWhenVisible)
+    return () => {
+      active = false
+      window.removeEventListener('focus', refreshHistory)
+      document.removeEventListener('visibilitychange', refreshWhenVisible)
+    }
+  }, [viewMode, user?.id, submoduleId, t])
 
   // ---------- Timer ----------
   useEffect(() => {
@@ -488,18 +584,7 @@ export default function BankChallengePage() {
       setResult(payload)
 
       if (user?.id) {
-        const savedAttempts = saveBankAttempt(user.id, submoduleId, {
-          id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`,
-          completedAt: new Date().toISOString(),
-          correctCount: payload.correctCount,
-          xpAwarded: payload.xpAwarded,
-          gemsAwarded: payload.gemsAwarded,
-          challenge,
-          questionResults: payload.questionResults.map((questionResult) => ({
-            ...questionResult,
-            selectedOptionIds: answers[questionResult.questionId] ?? [],
-          })),
-        })
+        const savedAttempts = saveBankAttempt(user.id, submoduleId, payload.historyEntry)
         if (!savedAttempts) {
           setError(t(
             'Your result was submitted, but this device could not save your attempt history.',
@@ -550,21 +635,42 @@ export default function BankChallengePage() {
     setPendingHistoryAction({ kind: 'clear' })
   }
 
-  const confirmHistoryAction = () => {
+  const confirmHistoryAction = async () => {
     if (!user?.id || !pendingHistoryAction) return
     const action = pendingHistoryAction
-    const updatedAttempts = action.kind === 'delete'
-      ? removeBankAttempt(user.id, submoduleId, action.attemptId)
-      : clearBankAttempts(user.id, submoduleId)
-    setPendingHistoryAction(null)
-    if (!updatedAttempts) {
-      setError(action.kind === 'delete'
-        ? t('Could not delete this attempt.', 'Tidak dapat menghapus percobaan ini.')
-        : t('Could not clear attempt history.', 'Tidak dapat menghapus riwayat percobaan.'))
-      return
+    try {
+      const response = await fetch(`/api/practice/bank/history/${encodeURIComponent(submoduleId)}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ attemptId: action.kind === 'delete' ? action.attemptId : null }),
+      })
+      const payload: unknown = await response.json()
+      if (!response.ok) {
+        throw new Error(
+          isRecord(payload) && typeof payload.error === 'string'
+            ? payload.error
+            : action.kind === 'delete'
+              ? t('Could not delete this attempt.', 'Tidak dapat menghapus percobaan ini.')
+              : t('Could not clear attempt history.', 'Tidak dapat menghapus riwayat percobaan.'),
+        )
+      }
+
+      const updatedAttempts = action.kind === 'delete'
+        ? removeBankAttempt(user.id, submoduleId, action.attemptId)
+        : clearBankAttempts(user.id, submoduleId)
+      if (!updatedAttempts) {
+        throw new Error(t('Could not update saved attempt history.', 'Tidak dapat memperbarui riwayat percobaan.'))
+      }
+      setAttempts(updatedAttempts)
+      setError('')
+    } catch (historyError) {
+      console.error('Could not update synchronized Question Bank history.', historyError)
+      setError(historyError instanceof Error
+        ? historyError.message
+        : t('Could not update attempt history.', 'Tidak dapat memperbarui riwayat percobaan.'))
+    } finally {
+      setPendingHistoryAction(null)
     }
-    setAttempts(updatedAttempts)
-    setError('')
   }
 
   const startReview = () => {
@@ -782,8 +888,8 @@ export default function BankChallengePage() {
           <div className="mb-4 flex flex-wrap items-center justify-between gap-2 text-sm">
             <p className="font-semibold text-slate-500">
               {t(
-                `Keeping the ${MAX_BANK_ATTEMPTS} most recent attempts on this device.`,
-                `Menyimpan ${MAX_BANK_ATTEMPTS} percobaan terbaru di perangkat ini.`,
+                `Keeping the ${MAX_BANK_ATTEMPTS} most recent attempts for your account.`,
+                `Menyimpan ${MAX_BANK_ATTEMPTS} percobaan terbaru di akunmu.`,
               )}
             </p>
             <button
@@ -884,12 +990,12 @@ export default function BankChallengePage() {
                 <p id="bank-history-confirm-description" className="mt-3 text-sm font-semibold leading-relaxed text-slate-500">
                   {pendingHistoryAction.kind === 'clear'
                     ? t(
-                      'All saved attempts for this submodule will be removed from this device. This cannot be undone.',
-                      'Semua percobaan tersimpan untuk submodul ini akan dihapus dari perangkat ini. Tindakan ini tidak dapat dibatalkan.',
+                      'All saved attempts for this submodule will be removed from your account. This cannot be undone.',
+                      'Semua percobaan tersimpan untuk submodul ini akan dihapus dari akunmu. Tindakan ini tidak dapat dibatalkan.',
                     )
                     : t(
-                      `Attempt ${pendingHistoryAction.attemptNumber} and its review will be removed from this device.`,
-                      `Percobaan ${pendingHistoryAction.attemptNumber} dan tinjauannya akan dihapus dari perangkat ini.`,
+                      `Attempt ${pendingHistoryAction.attemptNumber} and its review will be removed from your account.`,
+                      `Percobaan ${pendingHistoryAction.attemptNumber} dan tinjauannya akan dihapus dari akunmu.`,
                     )}
                 </p>
               </div>

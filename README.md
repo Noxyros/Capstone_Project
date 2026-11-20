@@ -13,7 +13,7 @@ Questly is a bilingual (English and Indonesian) curriculum-based learning app. S
 
 **Practice and rewards**
 - Review questions answered incorrectly in lessons.
-- Start timed, randomized Question Bank challenges by subject and submodule; recent attempt history is saved on this device.
+- Start timed, randomized Question Bank challenges by subject and submodule; the 10 most recent attempt records sync with the signed-in account.
 - Complete the three-question Daily Challenge and daily quests.
 - Earn XP and gems, maintain streaks, and manage hearts.
 - Opt in to daily reminders to help protect a learning streak.

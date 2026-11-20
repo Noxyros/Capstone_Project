@@ -280,6 +280,7 @@ model PracticeBankAttempt {
   questionIds String[]
   expiresAt   DateTime
   completedAt DateTime?
+  result      Json?
   createdAt   DateTime  @default(now())
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   submodule   Submodule @relation(fields: [submoduleId], references: [id], onDelete: Cascade)
