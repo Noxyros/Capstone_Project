@@ -74,6 +74,7 @@ type BankReviewSnapshot = {
 
 type BankAttempt = BankReviewSnapshot & {
   id: string
+  legacyId?: string
   completedAt: string | null
   correctCount: number
   xpAwarded: number
@@ -256,7 +257,14 @@ function isUuid(value: string): boolean {
 
 function mergeBankAttempts(remoteAttempts: BankAttempt[], localAttempts: BankAttempt[]): BankAttempt[] {
   const remoteIds = new Set(remoteAttempts.map((attempt) => attempt.id))
-  const retainedLocalAttempts = localAttempts.filter((attempt) => !isUuid(attempt.id) || remoteIds.has(attempt.id))
+  const remoteLegacyIds = new Set(
+    remoteAttempts.flatMap((attempt) => attempt.legacyId ? [attempt.legacyId] : []),
+  )
+  const retainedLocalAttempts = localAttempts.filter((attempt) =>
+    isUuid(attempt.id)
+      ? remoteIds.has(attempt.id)
+      : !remoteLegacyIds.has(attempt.id),
+  )
   const attemptsById = new Map<string, BankAttempt>()
   for (const attempt of [...retainedLocalAttempts, ...remoteAttempts]) {
     attemptsById.set(attempt.id, attempt)
@@ -266,8 +274,26 @@ function mergeBankAttempts(remoteAttempts: BankAttempt[], localAttempts: BankAtt
     .slice(0, MAX_BANK_ATTEMPTS)
 }
 
-async function loadSynchronizedBankAttempts(submoduleId: string): Promise<BankAttempt[]> {
-  const response = await fetch(`/api/practice/bank/history/${encodeURIComponent(submoduleId)}`, { cache: 'no-store' })
+async function loadSynchronizedBankAttempts(userId: string, submoduleId: string): Promise<BankAttempt[]> {
+  const historyUrl = `/api/practice/bank/history/${encodeURIComponent(submoduleId)}`
+  const legacyAttempts = getBankAttempts(userId, submoduleId).filter((attempt) => !isUuid(attempt.id))
+  if (legacyAttempts.length > 0) {
+    const importResponse = await fetch(historyUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ attempts: legacyAttempts }),
+    })
+    const importPayload: unknown = await importResponse.json()
+    if (!importResponse.ok) {
+      throw new Error(
+        isRecord(importPayload) && typeof importPayload.error === 'string'
+          ? importPayload.error
+          : 'Could not sync local attempt history.',
+      )
+    }
+  }
+
+  const response = await fetch(historyUrl, { cache: 'no-store' })
   const payload: unknown = await response.json()
   if (!response.ok) {
     throw new Error(
@@ -417,7 +443,7 @@ export default function BankChallengePage() {
     const savedAttempts = getBankAttempts(user.id, submoduleId)
     setAttempts(savedAttempts)
     const historyRequested = new URLSearchParams(window.location.search).get('view') === 'history'
-    const refreshHistory = loadSynchronizedBankAttempts(submoduleId).then((remoteAttempts) => {
+    const refreshHistory = loadSynchronizedBankAttempts(user.id, submoduleId).then((remoteAttempts) => {
       const mergedAttempts = mergeBankAttempts(remoteAttempts, getBankAttempts(user.id, submoduleId))
       cacheBankAttempts(user.id, submoduleId, mergedAttempts)
       setAttempts(mergedAttempts)
@@ -450,7 +476,7 @@ export default function BankChallengePage() {
     if (viewMode !== 'history' || !user?.id || !submoduleId) return
     let active = true
     const refreshHistory = () => {
-      void loadSynchronizedBankAttempts(submoduleId)
+      void loadSynchronizedBankAttempts(user.id, submoduleId)
         .then((remoteAttempts) => {
           if (!active) return
           const mergedAttempts = mergeBankAttempts(remoteAttempts, getBankAttempts(user.id, submoduleId))

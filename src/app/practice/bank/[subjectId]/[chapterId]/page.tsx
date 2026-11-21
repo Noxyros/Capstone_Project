@@ -75,6 +75,9 @@ export default function BankSubmodulePage() {
   )
   const [errorKind, setErrorKind] = useState<ErrorKind>(null)
   const [chapterTitle, setChapterTitle] = useState('')
+  const [accountCompletedSubmodules, setAccountCompletedSubmodules] = useState<Set<string>>(
+    () => new Set(),
+  )
 
   useEffect(() => {
     const subjects = getCachedCurriculum(undefined, scope)
@@ -126,6 +129,48 @@ export default function BankSubmodulePage() {
 
     return () => unsubscribe()
   }, [scope, loadSubmodules, user?.id, subjectId, chapterId])
+
+  useEffect(() => {
+    if (!user?.id || !chapterId) {
+      setAccountCompletedSubmodules(new Set())
+      return
+    }
+
+    let active = true
+    void fetch(`/api/practice/bank/history?chapterId=${encodeURIComponent(chapterId)}`, {
+      cache: 'no-store',
+    })
+      .then(async (response) => {
+        const payload: unknown = await response.json()
+        if (!response.ok) {
+          throw new Error(
+            typeof payload === 'object'
+            && payload !== null
+            && 'error' in payload
+            && typeof payload.error === 'string'
+              ? payload.error
+              : 'Could not load Question Bank history.',
+          )
+        }
+        if (
+          typeof payload !== 'object'
+          || payload === null
+          || !('completedSubmoduleIds' in payload)
+          || !Array.isArray(payload.completedSubmoduleIds)
+          || !payload.completedSubmoduleIds.every((id) => typeof id === 'string')
+        ) {
+          throw new Error('The server returned invalid Question Bank history.')
+        }
+        if (active) setAccountCompletedSubmodules(new Set(payload.completedSubmoduleIds))
+      })
+      .catch((historyError: unknown) => {
+        console.error('Failed to load account Question Bank history.', historyError)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [user?.id, chapterId])
 
   const backHref = `/practice/bank/${subjectId}`
 
@@ -214,7 +259,9 @@ export default function BankSubmodulePage() {
         <>
           <div className="space-y-2.5 sm:space-y-3">
             {submodules.map((submodule) => {
-              const isCompleted = user?.id ? isSubmoduleCompleted(user.id, submodule.id) : false
+              const isCompleted = user?.id
+                ? accountCompletedSubmodules.has(submodule.id) || isSubmoduleCompleted(user.id, submodule.id)
+                : false
               const challengeHref = `/practice/bank/${subjectId}/${chapterId}/${submodule.id}`
               return (
                 <article
