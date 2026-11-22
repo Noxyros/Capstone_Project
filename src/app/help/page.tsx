@@ -75,8 +75,8 @@ export default function HelpPage() {
       iconColor: 'text-emerald-600',
       title: t('How does the Practice Hub work?', 'Bagaimana cara kerja Pusat Latihan?'),
       desc: t(
-        'Use Mistake Review to fix questions you answered incorrectly, Weak Skills to master topics with scores below 80%, or Rapid Sprint for fast timed drills.',
-        'Gunakan Perbaikan Kesalahan untuk mengulang soal yang salah, Keahlian Lemah untuk topik dengan nilai di bawah 80%, atau Tantangan Cepat bertarget waktu.'
+        'Use Mistake Review to revisit questions you answered incorrectly, or Question Bank to take timed challenges, earn XP and gems, and review past attempts.',
+        'Gunakan Perbaikan Kesalahan untuk mengulang soal yang salah, atau Bank Soal untuk mencoba tantangan berbatas waktu, mendapatkan XP dan permata, serta melihat riwayat percobaan.'
       ),
     },
     {
