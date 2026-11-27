@@ -34,7 +34,7 @@ const RATE_LIMIT = 12
 const RATE_WINDOW_MS = 60_000
 const MAX_HISTORY_MESSAGES = 12
 const MAX_MESSAGE_LENGTH = 2_000
-const MAX_CONTEXT_LENGTH = 12_000
+const MAX_CONTEXT_LENGTH = 50_000
 const MAX_IMAGE_BYTES = 4_000_000 // 4 MB cap for images sent to the vision model
 
 function isRecord(value: unknown): value is Record<string, unknown> {
