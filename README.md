@@ -27,9 +27,9 @@ Questly is a bilingual (English and Indonesian) curriculum-based learning app. S
 - Generate AI roadmap drafts, review them, and publish curriculum for students.
 
 **AI roadmap generation**
-- Gemini is the primary provider (defaults to `gemini-3.6-flash`; override with `GEMINI_ROADMAP_MODEL`).
-- Text fallback uses `GROQ_ROADMAP_MODEL` (defaults to `openai/gpt-oss-120b`).
-- Image fallback uses `GROQ_VISION_MODEL` (defaults to `qwen/qwen3.8-27b`).
+- Pasted text and plain-text files use Groq, defaulting to `qwen/qwen3.8-27b`; override with `GROQ_ROADMAP_MODEL`.
+- PDF and image files use Gemini, defaulting to `gemini-3.6-flash`; override with `GEMINI_ROADMAP_MODEL`.
+- Gemini rate-limit fallback uses `GROQ_VISION_MODEL` for images (defaults to `qwen/qwen3.8-27b`).
 
 **AI tutor**
 - Lesson-aware chat per node.

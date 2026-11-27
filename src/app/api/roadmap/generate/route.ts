@@ -624,11 +624,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Teacher access is required.' }, { status: 403 })
   }
 
-  const apiKey = process.env.GEMINI_API_KEY?.trim()
-  if (!apiKey) {
-    return jsonError('Roadmap generation is not configured. Add GEMINI_API_KEY to .env.local and restart the server.', 'not_configured', 503)
-  }
-
   let formData: FormData
   try {
     formData = await request.formData()
@@ -713,6 +708,16 @@ export async function POST(request: Request) {
     sourceParts = [{ text: `Source material:\n${materialText}` }]
   }
 
+  const usesGemini = sourceParts.some((part) => 'inlineData' in part)
+  const apiKey = process.env.GEMINI_API_KEY?.trim()
+  const groqApiKey = process.env.GROQ_API_KEY?.trim()
+  if (usesGemini && !apiKey) {
+    return jsonError('Roadmap generation is not configured. Add GEMINI_API_KEY to .env.local and restart the server.', 'not_configured', 503)
+  }
+  if (!usesGemini && !groqApiKey) {
+    return jsonError('Roadmap generation is not configured. Add GROQ_API_KEY to .env.local and restart the server.', 'not_configured', 503)
+  }
+
   if (process.env.NODE_ENV === 'production' && !consumeRateLimit(request)) {
     return jsonError('Too many roadmap requests. Please wait a few minutes and try again.', 'rate_limited', 429)
   }
@@ -746,92 +751,20 @@ export async function POST(request: Request) {
   const model = process.env.GEMINI_ROADMAP_MODEL?.trim() || 'gemini-3.6-flash'
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), 75_000)
-  let provider = 'Gemini'
+  let provider = usesGemini ? 'Gemini' : 'Groq'
   let retryInvalidJson: ((rawOutput: string) => Promise<string | null>) | null = null
   let jsonRetryAlreadyAttempted = false
   let priorJsonOutput: string | null = null
 
   try {
-    const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
-    const createGeminiRequestBody = (userPrompt: string, includeSource: boolean) => JSON.stringify({
-      systemInstruction: {
-        parts: [{ text: 'You are an educational curriculum author. Follow the user task and output schema exactly.' }],
-      },
-      contents: [{
-        role: 'user',
-        parts: [{ text: userPrompt }, ...(includeSource ? sourceParts : [])],
-      }],
-      generationConfig: {
-        temperature: 0.25,
-        maxOutputTokens: 16_000,
-        responseMimeType: 'application/json',
-        responseSchema: generatedDraftSchema,
-      },
-    })
-    const requestOptions: RequestInit = {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': apiKey,
-      },
-      body: createGeminiRequestBody(prompt, true),
-      signal: controller.signal,
-    }
-    retryInvalidJson = async (rawOutput) => {
-      priorJsonOutput = rawOutput
-      try {
-        const repairResponse = await fetch(requestUrl, {
-          ...requestOptions,
-          body: createGeminiRequestBody(buildJsonRepairPrompt(rawOutput), false),
-        })
-        if (!repairResponse.ok) {
-          console.warn('Gemini roadmap JSON retry failed; retaining the first output.', repairResponse.status)
-          await repairResponse.body?.cancel()
-          return null
-        }
-        const repairResult: unknown = await repairResponse.json()
-        return getGeminiResponseText(repairResult)
-      } catch (error) {
-        console.warn('Gemini roadmap JSON retry failed; retaining the first output.', error)
-        return null
-      }
-    }
-    let response: Response
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        response = await fetch(requestUrl, requestOptions)
-      } catch (error) {
-        if (controller.signal.aborted || !(error instanceof TypeError) || attempt >= 2) throw error
-        console.warn(`Gemini roadmap connection failed; retrying (${attempt + 1}/2):`, model)
-        await waitForRetry(controller.signal, 1_000 * (2 ** attempt))
-        continue
-      }
-      if (response.status !== 503 || attempt >= 2) break
-
-      console.warn(`Gemini roadmap model is overloaded; retrying (${attempt + 1}/2):`, model)
-      await response.body?.cancel()
-      await waitForRetry(controller.signal, 1_000 * (2 ** attempt))
-    }
-
     let text = ''
-    if (response.status === 429) {
-      await response.body?.cancel()
-      const groqApiKey = process.env.GROQ_API_KEY?.trim()
-      if (!groqApiKey) {
-        return jsonError('Gemini is at its request limit and the Groq fallback is not configured.', 'fallback_not_configured', 503)
-      }
-
-      const groqPrompt = `${prompt}\n\n${GROQ_FALLBACK_INSTRUCTION}`
-      const groqContent = createGroqUserContent(groqPrompt, sourceParts)
+    if (!usesGemini) {
+      const groqModel = process.env.GROQ_ROADMAP_MODEL?.trim() || 'qwen/qwen3.8-27b'
+      const groqContent = createGroqUserContent(`${prompt}\n\n${GROQ_FALLBACK_INSTRUCTION}`, sourceParts)
       if (!groqContent) {
-        return jsonError('Gemini is at its request limit. Groq fallback supports text and JPEG, PNG, or WebP images, but not this file type.', 'fallback_unsupported_source', 422)
+        return jsonError('Groq roadmap generation supports pasted text and plain-text files.', 'unsupported_source', 422)
       }
 
-      const hasImage = sourceParts.some((part) => 'inlineData' in part)
-      const groqModel = hasImage
-        ? process.env.GROQ_VISION_MODEL?.trim() || 'qwen/qwen3.8-27b'
-        : process.env.GROQ_ROADMAP_MODEL?.trim() || 'openai/gpt-oss-120b'
-      const groqModelSetting = hasImage ? 'GROQ_VISION_MODEL' : 'GROQ_ROADMAP_MODEL'
       const groqResponseFormat = GROQ_STRICT_JSON_SCHEMA_MODELS.has(groqModel)
         ? {
             type: 'json_schema',
@@ -843,12 +776,6 @@ export async function POST(request: Request) {
           }
         : { type: 'json_object' }
       const groqMaxTokens = groqModel === 'openai/gpt-oss-120b' ? 5_200 : 6_000
-      provider = 'Groq'
-      console.warn('Gemini roadmap request was rate-limited; trying Groq fallback.', {
-        geminiModel: model,
-        groqModel,
-        groqMaxTokens,
-      })
       const groqMessages = [
         {
           role: 'system',
@@ -856,28 +783,98 @@ export async function POST(request: Request) {
         },
         { role: 'user', content: groqContent },
       ]
-      const createGroqRequestBody = (responseFormat: typeof groqResponseFormat | { type: 'json_object' }) => JSON.stringify({
+      const createGroqRequestBody = (
+        messages: typeof groqMessages,
+        responseFormat: typeof groqResponseFormat | { type: 'json_object' },
+        maxTokens: number,
+        temperature: number,
+      ) => JSON.stringify({
         model: groqModel,
-        messages: groqMessages,
-        temperature: 0.25,
-        max_tokens: groqMaxTokens,
+        messages,
+        temperature,
+        max_tokens: maxTokens,
         ...(groqModel === 'qwen/qwen3.8-27b' ? { reasoning_effort: 'none' } : {}),
         ...(groqModel === 'openai/gpt-oss-120b' ? { reasoning_effort: 'low' } : {}),
         response_format: responseFormat,
       })
-      retryInvalidJson = async (rawOutput) => {
-        const repairRequestBody = JSON.stringify({
+      const groqRequestBody = createGroqRequestBody(groqMessages, groqResponseFormat, groqMaxTokens, 0.25)
+      const groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${groqApiKey}`,
+        },
+        body: groqRequestBody,
+        signal: controller.signal,
+      })
+
+      if (groqResponse.status === 401 || groqResponse.status === 403) {
+        console.error('Groq roadmap request was unauthorized:', groqResponse.status)
+        return jsonError('Groq rejected the API key. Check GROQ_API_KEY in .env.local.', 'invalid_api_key', 502)
+      }
+      if (groqResponse.status === 404) {
+        console.error('Groq roadmap model is unavailable:', groqModel)
+        return jsonError('The configured Groq model is unavailable. Check GROQ_ROADMAP_MODEL.', 'model_unavailable', 502)
+      }
+      if (groqResponse.status === 429) {
+        const providerError = await getGroqErrorDetails(groqResponse)
+        console.warn('Groq rate-limited the primary roadmap request.', {
           model: groqModel,
-          messages: [
-            groqMessages[0],
-            { role: 'user', content: buildJsonRepairPrompt(rawOutput) },
-          ],
-          temperature: 0.1,
-          max_tokens: groqModel === 'qwen/qwen3.8-27b' ? 6_000 : Math.min(groqMaxTokens, 3_000),
-          ...(groqModel === 'qwen/qwen3.8-27b' ? { reasoning_effort: 'none' } : {}),
-          ...(groqModel === 'openai/gpt-oss-120b' ? { reasoning_effort: 'low' } : {}),
-          response_format: { type: 'json_object' },
+          type: providerError.type,
+          code: providerError.code,
+          message: providerError.message,
         })
+        return jsonError('Groq is at its request limit. Please wait a little and try again.', 'rate_limited', 429)
+      }
+      if (groqResponse.status === 413) {
+        const providerError = await getGroqErrorDetails(groqResponse)
+        console.error('Groq roadmap request was too large:', {
+          model: groqModel,
+          requestBytes: Buffer.byteLength(groqRequestBody, 'utf8'),
+          ...providerError,
+        })
+        return jsonError('Groq rejected the roadmap request because its payload was too large. Use shorter text.', 'payload_too_large', 413)
+      }
+      if (groqResponse.status === 400 || groqResponse.status === 422) {
+        const providerError = await getGroqErrorDetails(groqResponse)
+        console.error('Groq rejected the primary roadmap request:', {
+          status: groqResponse.status,
+          model: groqModel,
+          message: providerError.message,
+        })
+        return jsonError('Groq rejected the roadmap request. Check the source material or model configuration.', 'provider_request_rejected', 502)
+      }
+      if (!groqResponse.ok) {
+        console.error('Groq primary roadmap request failed:', groqResponse.status, groqModel)
+        return jsonError(
+          groqResponse.status === 503
+            ? 'Groq is temporarily busy. Please try again shortly.'
+            : 'Groq could not generate a roadmap right now. Please try again.',
+          groqResponse.status === 503 ? 'provider_busy' : 'provider_error',
+          groqResponse.status === 503 ? 503 : 502,
+        )
+      }
+
+      let groqResult: unknown
+      try {
+        groqResult = await groqResponse.json()
+      } catch {
+        console.error('Groq primary roadmap response was not valid JSON.')
+        return jsonError('Groq returned an unreadable roadmap. Please try again.', 'invalid_response', 502)
+      }
+      const groqText = getGroqResponseText(groqResult)
+      if (!groqText?.trim()) {
+        console.error('Groq primary roadmap response did not include generated content.')
+        return jsonError('Groq did not return a roadmap. Try again or use shorter source material.', 'empty_response', 502)
+      }
+      text = groqText
+      retryInvalidJson = async (rawOutput) => {
+        const repairRequestBody = createGroqRequestBody(
+          [groqMessages[0], { role: 'user', content: buildJsonRepairPrompt(rawOutput) }],
+          { type: 'json_object' },
+          Math.min(groqMaxTokens, 3_000),
+          0.1,
+        )
         try {
           const repairResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
             method: 'POST',
@@ -889,258 +886,409 @@ export async function POST(request: Request) {
             signal: controller.signal,
           })
           if (!repairResponse.ok) {
-            const providerError = await getGroqErrorDetails(repairResponse)
-            console.warn('Groq roadmap JSON retry failed; retaining the first output.', {
-              status: repairResponse.status,
-              model: groqModel,
-              ...providerError,
-            })
+            console.warn('Groq primary roadmap JSON retry failed; retaining the first output.', repairResponse.status)
             return null
           }
           const repairResult: unknown = await repairResponse.json()
           return getGroqResponseText(repairResult)
         } catch (error) {
-          console.warn('Groq roadmap JSON retry failed; retaining the first output.', error)
+          console.warn('Groq primary roadmap JSON retry failed; retaining the first output.', error)
           return null
         }
       }
-      let groqRequestBody = createGroqRequestBody(groqResponseFormat)
-      let requestBytes = Buffer.byteLength(groqRequestBody, 'utf8')
-      let groqFailedGenerationOutput: string | null = null
-      let groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    } else {
+      if (!apiKey) {
+        return jsonError('Roadmap generation is not configured. Add GEMINI_API_KEY to .env.local and restart the server.', 'not_configured', 503)
+      }
+
+      const requestUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
+      const createGeminiRequestBody = (userPrompt: string, includeSource: boolean) => JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: 'You are an educational curriculum author. Follow the user task and output schema exactly.' }],
+        },
+        contents: [{
+          role: 'user',
+          parts: [{ text: userPrompt }, ...(includeSource ? sourceParts : [])],
+        }],
+        generationConfig: {
+          temperature: 0.25,
+          maxOutputTokens: 16_000,
+          responseMimeType: 'application/json',
+          responseSchema: generatedDraftSchema,
+        },
+      })
+      const requestOptions: RequestInit = {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${groqApiKey}`,
+          'x-goog-api-key': apiKey,
         },
-        body: groqRequestBody,
+        body: createGeminiRequestBody(prompt, true),
         signal: controller.signal,
-      })
-      let groqErrorDetails: GroqErrorDetails | undefined
-      if (groqResponse.status === 400 && groqResponseFormat.type === 'json_schema') {
-        groqErrorDetails = await getGroqErrorDetails(groqResponse, true)
-        if (groqErrorDetails.code === 'json_validate_failed') {
-          jsonRetryAlreadyAttempted = true
-          groqFailedGenerationOutput = groqErrorDetails.failedGeneration?.rawOutput ?? null
-          priorJsonOutput = groqFailedGenerationOutput
-          console.warn('Groq strict roadmap output failed JSON schema validation; retrying once in JSON Object Mode.', {
-            model: groqModel,
-            failedGenerationLength: groqErrorDetails.failedGeneration?.length,
-            failedGenerationValidJson: groqErrorDetails.failedGeneration?.validJson,
-            failedGenerationDiagnostics: groqErrorDetails.failedGeneration?.diagnostics,
+      }
+      retryInvalidJson = async (rawOutput) => {
+        priorJsonOutput = rawOutput
+        try {
+          const repairResponse = await fetch(requestUrl, {
+            ...requestOptions,
+            body: createGeminiRequestBody(buildJsonRepairPrompt(rawOutput), false),
           })
-          groqRequestBody = createGroqRequestBody({ type: 'json_object' })
-          requestBytes = Buffer.byteLength(groqRequestBody, 'utf8')
-          groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${groqApiKey}`,
-            },
-            body: groqRequestBody,
-            signal: controller.signal,
-          })
-          groqErrorDetails = groqResponse.status === 400 || groqResponse.status === 422
-            ? await getGroqErrorDetails(groqResponse, true)
-            : undefined
-          groqFailedGenerationOutput = groqErrorDetails?.failedGeneration?.rawOutput ?? groqFailedGenerationOutput
-          priorJsonOutput = groqFailedGenerationOutput
+          if (!repairResponse.ok) {
+            console.warn('Gemini roadmap JSON retry failed; retaining the first output.', repairResponse.status)
+            await repairResponse.body?.cancel()
+            return null
+          }
+          const repairResult: unknown = await repairResponse.json()
+          return getGeminiResponseText(repairResult)
+        } catch (error) {
+          console.warn('Gemini roadmap JSON retry failed; retaining the first output.', error)
+          return null
         }
       }
+      let response: Response
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          response = await fetch(requestUrl, requestOptions)
+        } catch (error) {
+          if (controller.signal.aborted || !(error instanceof TypeError) || attempt >= 2) throw error
+          console.warn(`Gemini roadmap connection failed; retrying (${attempt + 1}/2):`, model)
+          await waitForRetry(controller.signal, 1_000 * (2 ** attempt))
+          continue
+        }
+        if (response.status !== 503 || attempt >= 2) break
 
-      if (groqResponse.status === 401 || groqResponse.status === 403) {
-        console.error('Groq roadmap fallback was unauthorized:', groqResponse.status)
-        return jsonError('Groq rejected the API key. Check GROQ_API_KEY in .env.local.', 'fallback_invalid_api_key', 502)
+        console.warn(`Gemini roadmap model is overloaded; retrying (${attempt + 1}/2):`, model)
+        await response.body?.cancel()
+        await waitForRetry(controller.signal, 1_000 * (2 ** attempt))
       }
-      if (groqResponse.status === 404) {
-        console.error('Groq roadmap fallback model is unavailable:', groqModel)
-        return jsonError(`The configured Groq model is unavailable. Check ${groqModelSetting}.`, 'fallback_model_unavailable', 502)
-      }
-      if (groqResponse.status === 429 && groqFailedGenerationOutput) {
-        text = groqFailedGenerationOutput
-        console.warn('Groq JSON mode retry was rate-limited; using its first failed-generation output.')
-      } else if (groqResponse.status === 429) {
-        const retryAfterHeader = groqResponse.headers.get('retry-after')
-        const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN
-        const validRetryAfter = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
-          ? Math.ceil(retryAfterSeconds)
-          : null
-        const providerError = await getGroqErrorDetails(groqResponse)
-        console.warn('Groq rate-limited the roadmap fallback request.', {
+
+      if (response.status === 429) {
+        await response.body?.cancel()
+        if (!groqApiKey) {
+          return jsonError('Gemini is at its request limit and the Groq fallback is not configured.', 'fallback_not_configured', 503)
+        }
+
+        const groqPrompt = `${prompt}\n\n${GROQ_FALLBACK_INSTRUCTION}`
+        const groqContent = createGroqUserContent(groqPrompt, sourceParts)
+        if (!groqContent) {
+          return jsonError('Gemini is at its request limit. Groq fallback supports text and JPEG, PNG, or WebP images, but not this file type.', 'fallback_unsupported_source', 422)
+        }
+
+        const hasImage = sourceParts.some((part) => 'inlineData' in part)
+        const groqModel = hasImage
+          ? process.env.GROQ_VISION_MODEL?.trim() || 'qwen/qwen3.8-27b'
+          : process.env.GROQ_ROADMAP_MODEL?.trim() || 'openai/gpt-oss-120b'
+        const groqModelSetting = hasImage ? 'GROQ_VISION_MODEL' : 'GROQ_ROADMAP_MODEL'
+        const groqResponseFormat = GROQ_STRICT_JSON_SCHEMA_MODELS.has(groqModel)
+          ? {
+              type: 'json_schema',
+              json_schema: {
+                name: 'roadmap_draft',
+                strict: true,
+                schema: groqGeneratedDraftSchema,
+              },
+            }
+          : { type: 'json_object' }
+        const groqMaxTokens = groqModel === 'openai/gpt-oss-120b' ? 5_200 : 6_000
+        provider = 'Groq'
+        console.warn('Gemini roadmap request was rate-limited; trying Groq fallback.', {
+          geminiModel: model,
+          groqModel,
+          groqMaxTokens,
+        })
+        const groqMessages = [
+          {
+            role: 'system',
+            content: 'You are an educational curriculum author. Return only a JSON object with chapterTitle, summary, and nodes. Every node has title, type, content, and questions. Each question has prompt, exactly four options, and an integer correctIndex from 0 to 3. Follow the user task and its node-count rules exactly.',
+          },
+          { role: 'user', content: groqContent },
+        ]
+        const createGroqRequestBody = (responseFormat: typeof groqResponseFormat | { type: 'json_object' }) => JSON.stringify({
           model: groqModel,
-          providerError: {
+          messages: groqMessages,
+          temperature: 0.25,
+          max_tokens: groqMaxTokens,
+          ...(groqModel === 'qwen/qwen3.8-27b' ? { reasoning_effort: 'none' } : {}),
+          ...(groqModel === 'openai/gpt-oss-120b' ? { reasoning_effort: 'low' } : {}),
+          response_format: responseFormat,
+        })
+        retryInvalidJson = async (rawOutput) => {
+          const repairRequestBody = JSON.stringify({
+            model: groqModel,
+            messages: [
+              groqMessages[0],
+              { role: 'user', content: buildJsonRepairPrompt(rawOutput) },
+            ],
+            temperature: 0.1,
+            max_tokens: groqModel === 'qwen/qwen3.8-27b' ? 6_000 : Math.min(groqMaxTokens, 3_000),
+            ...(groqModel === 'qwen/qwen3.8-27b' ? { reasoning_effort: 'none' } : {}),
+            ...(groqModel === 'openai/gpt-oss-120b' ? { reasoning_effort: 'low' } : {}),
+            response_format: { type: 'json_object' },
+          })
+          try {
+            const repairResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${groqApiKey}`,
+              },
+              body: repairRequestBody,
+              signal: controller.signal,
+            })
+            if (!repairResponse.ok) {
+              const providerError = await getGroqErrorDetails(repairResponse)
+              console.warn('Groq roadmap JSON retry failed; retaining the first output.', {
+                status: repairResponse.status,
+                model: groqModel,
+                ...providerError,
+              })
+              return null
+            }
+            const repairResult: unknown = await repairResponse.json()
+            return getGroqResponseText(repairResult)
+          } catch (error) {
+            console.warn('Groq roadmap JSON retry failed; retaining the first output.', error)
+            return null
+          }
+        }
+        let groqRequestBody = createGroqRequestBody(groqResponseFormat)
+        let requestBytes = Buffer.byteLength(groqRequestBody, 'utf8')
+        let groqFailedGenerationOutput: string | null = null
+        let groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${groqApiKey}`,
+          },
+          body: groqRequestBody,
+          signal: controller.signal,
+        })
+        let groqErrorDetails: GroqErrorDetails | undefined
+        if (groqResponse.status === 400 && groqResponseFormat.type === 'json_schema') {
+          groqErrorDetails = await getGroqErrorDetails(groqResponse, true)
+          if (groqErrorDetails.code === 'json_validate_failed') {
+            jsonRetryAlreadyAttempted = true
+            groqFailedGenerationOutput = groqErrorDetails.failedGeneration?.rawOutput ?? null
+            priorJsonOutput = groqFailedGenerationOutput
+            console.warn('Groq strict roadmap output failed JSON schema validation; retrying once in JSON Object Mode.', {
+              model: groqModel,
+              failedGenerationLength: groqErrorDetails.failedGeneration?.length,
+              failedGenerationValidJson: groqErrorDetails.failedGeneration?.validJson,
+              failedGenerationDiagnostics: groqErrorDetails.failedGeneration?.diagnostics,
+            })
+            groqRequestBody = createGroqRequestBody({ type: 'json_object' })
+            requestBytes = Buffer.byteLength(groqRequestBody, 'utf8')
+            groqResponse = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${groqApiKey}`,
+              },
+              body: groqRequestBody,
+              signal: controller.signal,
+            })
+            groqErrorDetails = groqResponse.status === 400 || groqResponse.status === 422
+              ? await getGroqErrorDetails(groqResponse, true)
+              : undefined
+            groqFailedGenerationOutput = groqErrorDetails?.failedGeneration?.rawOutput ?? groqFailedGenerationOutput
+            priorJsonOutput = groqFailedGenerationOutput
+          }
+        }
+
+        if (groqResponse.status === 401 || groqResponse.status === 403) {
+          console.error('Groq roadmap fallback was unauthorized:', groqResponse.status)
+          return jsonError('Groq rejected the API key. Check GROQ_API_KEY in .env.local.', 'fallback_invalid_api_key', 502)
+        }
+        if (groqResponse.status === 404) {
+          console.error('Groq roadmap fallback model is unavailable:', groqModel)
+          return jsonError(`The configured Groq model is unavailable. Check ${groqModelSetting}.`, 'fallback_model_unavailable', 502)
+        }
+        if (groqResponse.status === 429 && groqFailedGenerationOutput) {
+          text = groqFailedGenerationOutput
+          console.warn('Groq JSON mode retry was rate-limited; using its first failed-generation output.')
+        } else if (groqResponse.status === 429) {
+          const retryAfterHeader = groqResponse.headers.get('retry-after')
+          const retryAfterSeconds = retryAfterHeader ? Number(retryAfterHeader) : NaN
+          const validRetryAfter = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+            ? Math.ceil(retryAfterSeconds)
+            : null
+          const providerError = await getGroqErrorDetails(groqResponse)
+          console.warn('Groq rate-limited the roadmap fallback request.', {
+            model: groqModel,
+            providerError: {
+              type: providerError.type,
+              code: providerError.code,
+              message: providerError.message,
+            },
+            retryAfter: retryAfterHeader,
+            limitRequests: groqResponse.headers.get('x-ratelimit-limit-requests'),
+            limitTokens: groqResponse.headers.get('x-ratelimit-limit-tokens'),
+            remainingRequests: groqResponse.headers.get('x-ratelimit-remaining-requests'),
+            remainingTokens: groqResponse.headers.get('x-ratelimit-remaining-tokens'),
+            resetRequests: groqResponse.headers.get('x-ratelimit-reset-requests'),
+            resetTokens: groqResponse.headers.get('x-ratelimit-reset-tokens'),
+          })
+          return NextResponse.json(
+            {
+              error: 'Gemini and Groq both rate-limited this roadmap request. The tutor chat may still be available.',
+              code: 'fallback_rate_limited',
+              retryAfterSeconds: validRetryAfter,
+            },
+            {
+              status: 429,
+              headers: validRetryAfter ? { 'Retry-After': String(validRetryAfter) } : undefined,
+            }
+          )
+        }
+        if (groqResponse.status === 413) {
+          const providerError = await getGroqErrorDetails(groqResponse)
+          console.error('Groq roadmap fallback request was too large:', {
+            model: groqModel,
+            requestBytes,
+            ...providerError,
+          })
+          if (providerError.type === 'tokens' && providerError.code === 'rate_limit_exceeded') {
+            return jsonError(
+              "This roadmap request exceeds Groq's per-minute token budget. Use shorter source material or a model with a higher limit.",
+              'fallback_token_budget_exceeded',
+              413,
+            )
+          }
+          return jsonError('Groq rejected the roadmap request because its payload was too large. Use shorter text or a smaller image.', 'fallback_payload_too_large', 413)
+        }
+        if (groqResponse.status === 400 || groqResponse.status === 422) {
+          const providerError = groqErrorDetails ?? await getGroqErrorDetails(groqResponse, true)
+          const failedGenerationOutput = providerError.failedGeneration?.rawOutput ?? groqFailedGenerationOutput
+          console.error('Groq rejected the roadmap fallback request:', {
+            status: groqResponse.status,
+            model: groqModel,
+            requestBytes,
             type: providerError.type,
             code: providerError.code,
             message: providerError.message,
-          },
-          retryAfter: retryAfterHeader,
-          limitRequests: groqResponse.headers.get('x-ratelimit-limit-requests'),
-          limitTokens: groqResponse.headers.get('x-ratelimit-limit-tokens'),
-          remainingRequests: groqResponse.headers.get('x-ratelimit-remaining-requests'),
-          remainingTokens: groqResponse.headers.get('x-ratelimit-remaining-tokens'),
-          resetRequests: groqResponse.headers.get('x-ratelimit-reset-requests'),
-          resetTokens: groqResponse.headers.get('x-ratelimit-reset-tokens'),
-        })
-        return NextResponse.json(
-          {
-            error: 'Gemini and Groq both rate-limited this roadmap request. The tutor chat may still be available.',
-            code: 'fallback_rate_limited',
-            retryAfterSeconds: validRetryAfter,
-          },
-          {
-            status: 429,
-            headers: validRetryAfter ? { 'Retry-After': String(validRetryAfter) } : undefined,
-          }
-        )
-      }
-      if (groqResponse.status === 413) {
-        const providerError = await getGroqErrorDetails(groqResponse)
-        console.error('Groq roadmap fallback request was too large:', {
-          model: groqModel,
-          requestBytes,
-          ...providerError,
-        })
-        if (providerError.type === 'tokens' && providerError.code === 'rate_limit_exceeded') {
-          return jsonError(
-            "This roadmap request exceeds Groq's per-minute token budget. Use shorter source material or a model with a higher limit.",
-            'fallback_token_budget_exceeded',
-            413,
-          )
-        }
-        return jsonError('Groq rejected the roadmap request because its payload was too large. Use shorter text or a smaller image.', 'fallback_payload_too_large', 413)
-      }
-      if (groqResponse.status === 400 || groqResponse.status === 422) {
-        const providerError = groqErrorDetails ?? await getGroqErrorDetails(groqResponse, true)
-        const failedGenerationOutput = providerError.failedGeneration?.rawOutput ?? groqFailedGenerationOutput
-        console.error('Groq rejected the roadmap fallback request:', {
-          status: groqResponse.status,
-          model: groqModel,
-          requestBytes,
-          type: providerError.type,
-          code: providerError.code,
-          message: providerError.message,
-          failedGeneration: providerError.failedGeneration
-            ? {
-                length: providerError.failedGeneration.length,
-                validJson: providerError.failedGeneration.validJson,
-                parseErrorPosition: providerError.failedGeneration.parseErrorPosition,
-                diagnostics: providerError.failedGeneration.diagnostics,
-              }
-            : undefined,
-        })
-        if (providerError.code === 'json_validate_failed' && failedGenerationOutput) {
-          text = failedGenerationOutput
-          console.warn('Using Groq failed-generation output after JSON mode retry failed.')
-        } else if (providerError.code === 'json_validate_failed') {
-          return jsonError('Groq could not produce a roadmap in the required format. Try again or select a different Groq model.', 'fallback_invalid_output', 502)
-        } else {
-          return jsonError('Groq rejected the roadmap fallback request. Check the source material or Groq model configuration.', 'fallback_request_rejected', 502)
-        }
-      } else if (!groqResponse.ok && !(groqResponse.status === 429 && groqFailedGenerationOutput)) {
-        const providerError = await getGroqErrorDetails(groqResponse)
-        console.error('Groq roadmap fallback failed:', {
-          status: groqResponse.status,
-          model: groqModel,
-          requestBytes,
-          ...providerError,
-        })
-        return jsonError('Groq could not generate a roadmap after Gemini reached its request limit. Please try again.', 'fallback_provider_error', 502)
-      }
-
-      if (!groqFailedGenerationOutput || groqResponse.ok) {
-        let groqResult: unknown = null
-        try {
-          groqResult = await groqResponse.json()
-        } catch {
-          if (!groqFailedGenerationOutput) {
-            console.error('Groq roadmap fallback returned invalid JSON.')
-            return jsonError('Groq returned an unreadable roadmap. Please try again.', 'empty_response', 502)
-          }
-        }
-        const groqText = getGroqResponseText(groqResult)
-        if (!groqText?.trim()) {
-          if (groqFailedGenerationOutput) {
-            text = groqFailedGenerationOutput
-            console.warn('Groq JSON mode retry returned no content; using its first failed-generation output.')
+            failedGeneration: providerError.failedGeneration
+              ? {
+                  length: providerError.failedGeneration.length,
+                  validJson: providerError.failedGeneration.validJson,
+                  parseErrorPosition: providerError.failedGeneration.parseErrorPosition,
+                  diagnostics: providerError.failedGeneration.diagnostics,
+                }
+              : undefined,
+          })
+          if (providerError.code === 'json_validate_failed' && failedGenerationOutput) {
+            text = failedGenerationOutput
+            console.warn('Using Groq failed-generation output after JSON mode retry failed.')
+          } else if (providerError.code === 'json_validate_failed') {
+            return jsonError('Groq could not produce a roadmap in the required format. Try again or select a different Groq model.', 'fallback_invalid_output', 502)
           } else {
-            console.error('Groq roadmap fallback response did not include generated content.')
-            return jsonError('Groq did not return a roadmap. Try again or use shorter source material.', 'empty_response', 502)
+            return jsonError('Groq rejected the roadmap fallback request. Check the source material or Groq model configuration.', 'fallback_request_rejected', 502)
           }
-        } else {
-          text = groqText
+        } else if (!groqResponse.ok && !(groqResponse.status === 429 && groqFailedGenerationOutput)) {
+          const providerError = await getGroqErrorDetails(groqResponse)
+          console.error('Groq roadmap fallback failed:', {
+            status: groqResponse.status,
+            model: groqModel,
+            requestBytes,
+            ...providerError,
+          })
+          return jsonError('Groq could not generate a roadmap after Gemini reached its request limit. Please try again.', 'fallback_provider_error', 502)
         }
-      }
-    } else {
-      if (response.status === 401 || response.status === 403) {
-        console.error('Gemini roadmap request was unauthorized:', response.status)
-        return jsonError('Gemini rejected the API key. Check GEMINI_API_KEY in .env.local.', 'invalid_api_key', 502)
-      }
-      if (response.status === 404) {
-        console.error('Gemini roadmap model is unavailable:', model)
-        return jsonError('The configured Gemini model is unavailable. Check GEMINI_ROADMAP_MODEL.', 'model_unavailable', 502)
-      }
-      if (response.status === 503) {
-        console.error('Gemini roadmap model is temporarily overloaded:', model)
-        return jsonError('The AI service is temporarily busy. Please try again shortly.', 'provider_busy', 503)
-      }
-      if (!response.ok) {
-        let providerMessage = ''
-        try {
-          const errorBody: unknown = await response.json()
-          if (
-            typeof errorBody === 'object'
-            && errorBody !== null
-            && 'error' in errorBody
-            && typeof errorBody.error === 'object'
-            && errorBody.error !== null
-            && 'message' in errorBody.error
-            && typeof errorBody.error.message === 'string'
-          ) {
-            providerMessage = errorBody.error.message.slice(0, 500)
+
+        if (!groqFailedGenerationOutput || groqResponse.ok) {
+          let groqResult: unknown = null
+          try {
+            groqResult = await groqResponse.json()
+          } catch {
+            if (!groqFailedGenerationOutput) {
+              console.error('Groq roadmap fallback returned invalid JSON.')
+              return jsonError('Groq returned an unreadable roadmap. Please try again.', 'empty_response', 502)
+            }
           }
-        } catch {
-          providerMessage = 'Provider returned a non-JSON error response.'
+          const groqText = getGroqResponseText(groqResult)
+          if (!groqText?.trim()) {
+            if (groqFailedGenerationOutput) {
+              text = groqFailedGenerationOutput
+              console.warn('Groq JSON mode retry returned no content; using its first failed-generation output.')
+            } else {
+              console.error('Groq roadmap fallback response did not include generated content.')
+              return jsonError('Groq did not return a roadmap. Try again or use shorter source material.', 'empty_response', 502)
+            }
+          } else {
+            text = groqText
+          }
         }
-        console.error('Gemini roadmap request failed:', { status: response.status, message: providerMessage })
-        if (response.status === 400 || response.status === 422) {
-          return jsonError('The AI service rejected the generation request. Check the source file and try again.', 'provider_request_rejected', 502)
+      } else {
+        if (response.status === 401 || response.status === 403) {
+          console.error('Gemini roadmap request was unauthorized:', response.status)
+          return jsonError('Gemini rejected the API key. Check GEMINI_API_KEY in .env.local.', 'invalid_api_key', 502)
         }
-        return jsonError('Gemini could not generate a roadmap right now. Please try again.', 'provider_error', 502)
-      }
+        if (response.status === 404) {
+          console.error('Gemini roadmap model is unavailable:', model)
+          return jsonError('The configured Gemini model is unavailable. Check GEMINI_ROADMAP_MODEL.', 'model_unavailable', 502)
+        }
+        if (response.status === 503) {
+          console.error('Gemini roadmap model is temporarily overloaded:', model)
+          return jsonError('The AI service is temporarily busy. Please try again shortly.', 'provider_busy', 503)
+        }
+        if (!response.ok) {
+          let providerMessage = ''
+          try {
+            const errorBody: unknown = await response.json()
+            if (
+              typeof errorBody === 'object'
+              && errorBody !== null
+              && 'error' in errorBody
+              && typeof errorBody.error === 'object'
+              && errorBody.error !== null
+              && 'message' in errorBody.error
+              && typeof errorBody.error.message === 'string'
+            ) {
+              providerMessage = errorBody.error.message.slice(0, 500)
+            }
+          } catch {
+            providerMessage = 'Provider returned a non-JSON error response.'
+          }
+          console.error('Gemini roadmap request failed:', { status: response.status, message: providerMessage })
+          if (response.status === 400 || response.status === 422) {
+            return jsonError('The AI service rejected the generation request. Check the source file and try again.', 'provider_request_rejected', 502)
+          }
+          return jsonError('Gemini could not generate a roadmap right now. Please try again.', 'provider_error', 502)
+        }
 
-      const result: unknown = await response.json()
-      if (typeof result !== 'object' || result === null || !('candidates' in result) || !Array.isArray(result.candidates)) {
-        console.error('Gemini roadmap response had an invalid structure.')
-        return jsonError('Gemini returned an unexpected response. Please try again.', 'invalid_response', 502)
-      }
+        const result: unknown = await response.json()
+        if (typeof result !== 'object' || result === null || !('candidates' in result) || !Array.isArray(result.candidates)) {
+          console.error('Gemini roadmap response had an invalid structure.')
+          return jsonError('Gemini returned an unexpected response. Please try again.', 'invalid_response', 502)
+        }
 
-      const candidate = result.candidates[0]
-      if (
-        typeof candidate === 'object'
-        && candidate !== null
-        && 'finishReason' in candidate
-        && candidate.finishReason === 'MAX_TOKENS'
-      ) {
-        console.error('Gemini roadmap response exceeded the output token limit.')
-        return jsonError('Gemini could not fit the full roadmap in one response. Try a shorter source.', 'output_too_large', 502)
-      }
-      if (
-        typeof candidate !== 'object'
-        || candidate === null
-        || !('content' in candidate)
-        || typeof candidate.content !== 'object'
-        || candidate.content === null
-        || !('parts' in candidate.content)
-        || !Array.isArray(candidate.content.parts)
-      ) {
-        console.error('Gemini roadmap response did not include generated content.')
-        return jsonError('Gemini did not return a roadmap. Try a clearer or shorter source.', 'empty_response', 502)
-      }
+        const candidate = result.candidates[0]
+        if (
+          typeof candidate === 'object'
+          && candidate !== null
+          && 'finishReason' in candidate
+          && candidate.finishReason === 'MAX_TOKENS'
+        ) {
+          console.error('Gemini roadmap response exceeded the output token limit.')
+          return jsonError('Gemini could not fit the full roadmap in one response. Try a shorter source.', 'output_too_large', 502)
+        }
+        if (
+          typeof candidate !== 'object'
+          || candidate === null
+          || !('content' in candidate)
+          || typeof candidate.content !== 'object'
+          || candidate.content === null
+          || !('parts' in candidate.content)
+          || !Array.isArray(candidate.content.parts)
+        ) {
+          console.error('Gemini roadmap response did not include generated content.')
+          return jsonError('Gemini did not return a roadmap. Try a clearer or shorter source.', 'empty_response', 502)
+        }
 
-      text = candidate.content.parts
-        .filter((part: unknown): part is { text: string } => typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string')
-        .map((part: { text: string }) => part.text)
-        .join('')
+        text = candidate.content.parts
+          .filter((part: unknown): part is { text: string } => typeof part === 'object' && part !== null && 'text' in part && typeof part.text === 'string')
+          .map((part: { text: string }) => part.text)
+          .join('')
+      }
     }
 
     let parsed: unknown | null = null
